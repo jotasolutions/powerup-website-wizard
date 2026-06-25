@@ -441,6 +441,7 @@ function StepRestaurante({
   const [q, setQ] = useState("");
   const [results, setResults] = useState<GmbResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
   const [mName, setMName] = useState("");
   const [mAddress, setMAddress] = useState("");
@@ -449,15 +450,21 @@ function StepRestaurante({
     if (manual) return;
     if (q.trim().length < 2) {
       setResults([]);
+      setSearchError(null);
       return;
     }
     setLoading(true);
+    setSearchError(null);
     const t = setTimeout(async () => {
       try {
         const r = await search({ data: { query: q.trim() } });
         setResults(r.results);
       } catch (e) {
         console.error(e);
+        setResults([]);
+        setSearchError(
+          e instanceof Error ? e.message : "No se pudo buscar el restaurante. Inténtalo de nuevo.",
+        );
       } finally {
         setLoading(false);
       }
@@ -507,7 +514,10 @@ function StepRestaurante({
           autoFocus
           placeholder="Busca tu restaurante"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setSearchError(null);
+          }}
           className="pl-9"
         />
       </div>
@@ -517,6 +527,10 @@ function StepRestaurante({
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Buscando…
         </div>
+      )}
+
+      {searchError && (
+        <p className="px-2 text-xs text-destructive">{searchError}</p>
       )}
 
       {!loading && results.length > 0 && (

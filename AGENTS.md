@@ -18,7 +18,10 @@ npm run dev            # http://localhost:8080
 | `DATABASE_URL` | Neon Postgres (obligatorio) |
 | `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
 | `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
+| `GOOGLE_PLACES_API_KEY` | Google Places API (New) para búsqueda de restaurantes (obligatorio) |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
+
+La comprobación de dominios personalizados sigue en **mock** (`MOCK_DOMAIN_CHECK` en `alta-config.ts`) hasta integrar un registrador.
 
 ## Flujo principal
 

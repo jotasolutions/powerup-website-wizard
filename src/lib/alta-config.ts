@@ -1,8 +1,8 @@
 // Configuración del flujo de alta. Importes/precios configurables.
-// Cuando MOCK_MODE = false, las edge functions llaman a APIs reales (Google Places,
-// registrador de dominios, Stripe). Mientras esté en true, devuelven datos falsos.
+// Búsqueda de restaurantes: Google Places API (ver env.server.ts).
+// Dominios personalizados: mock hasta integrar un registrador (Namecheap, Porkbun, etc.).
 
-export const MOCK_MODE = true;
+export const MOCK_DOMAIN_CHECK = true;
 
 // Importe de referencia del plan Pro Anual (incluye Página Web). No codificar
 // importes finales en Stripe: el Stripe Price ID será un secreto cuando se integre real.

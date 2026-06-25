@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { MOCK_MODE, FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
+import { MOCK_DOMAIN_CHECK, FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
@@ -8,6 +8,8 @@ import {
 } from "./stripe.server";
 import { getAppOrigin } from "./app-env.server";
 import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
+import { hasGooglePlaces } from "./env.server";
+import { searchRestaurants } from "./google-places.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // gmb-search: busca restaurantes en Google Business Profile / Places.
@@ -15,35 +17,12 @@ import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
 export const gmbSearch = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ query: z.string().min(1) }).parse(input))
   .handler(async ({ data }) => {
-    if (MOCK_MODE) {
-      const q = data.query.toLowerCase();
-      const all = [
-        {
-          name: `Bar ${capitalize(data.query)}`,
-          address: "Calle Mayor 12, 28013 Madrid, España",
-          place_id: "mock_place_001",
-        },
-        {
-          name: `Restaurante ${capitalize(data.query)} & Co.`,
-          address: "Av. Diagonal 245, 08018 Barcelona, España",
-          place_id: "mock_place_002",
-        },
-        {
-          name: `Taberna La ${capitalize(data.query)}`,
-          address: "Plaza del Carmen 3, 41004 Sevilla, España",
-          place_id: "mock_place_003",
-        },
-        {
-          name: `${capitalize(data.query)} Gastrobar`,
-          address: "Calle Botxí 8, 46003 Valencia, España",
-          place_id: "mock_place_004",
-        },
-      ];
-      await new Promise((r) => setTimeout(r, 350));
-      return { results: all.filter((_, i) => i < (q.length < 3 ? 3 : 4)) };
+    if (!hasGooglePlaces()) {
+      throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
     }
 
-    throw new Error("MOCK_MODE desactivado pero la integración real no está configurada.");
+    const results = await searchRestaurants(data.query);
+    return { results };
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +31,7 @@ export const gmbSearch = createServerFn({ method: "POST" })
 export const checkDomain = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ domain: z.string().min(3) }).parse(input))
   .handler(async ({ data }) => {
-    if (MOCK_MODE) {
+    if (MOCK_DOMAIN_CHECK) {
       await new Promise((r) => setTimeout(r, 500));
       const domain = data.domain.toLowerCase().trim();
       if (domain.includes("test")) {
@@ -62,7 +41,7 @@ export const checkDomain = createServerFn({ method: "POST" })
       return { available: true, price };
     }
 
-    throw new Error("MOCK_MODE desactivado pero la integración real no está configurada.");
+    throw new Error("MOCK_DOMAIN_CHECK desactivado pero el registrador de dominios no está configurado.");
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,7 +195,3 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
     await markAltaPaid(data.alta_id, data.session_id);
     return { ok: true, mock: false };
   });
-
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}

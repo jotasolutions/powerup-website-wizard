@@ -62,3 +62,16 @@ export function hasDatabaseUrl(): boolean {
 export function hasStripeConfig(): boolean {
   return Boolean(getStripeSecretKey() && getStripeAnnualPriceId());
 }
+
+export function getGooglePlacesApiKey(): string | undefined {
+  return firstEnv(
+    "GOOGLE_PLACES_API_KEY",
+    "GOOGLE_API_KEY",
+    "NEXT_PUBLIC_GOOGLE_API_KEY",
+    "VITE_GOOGLE_API_KEY",
+  );
+}
+
+export function hasGooglePlaces(): boolean {
+  return Boolean(getGooglePlacesApiKey());
+}
