@@ -33,6 +33,7 @@ export default defineConfig({
       "@supabase/storage-js",
       "@neondatabase/serverless",
       "drizzle-orm",
+      "stripe",
     ],
   },
   tanstackStart: {

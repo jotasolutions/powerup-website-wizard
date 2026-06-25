@@ -13,7 +13,7 @@ import {
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   FEE_GESTION_WEB_PROPIA_EUR,
 } from "@/lib/alta-config";
-import { gmbSearch, checkDomain, saveAlta, createCheckout } from "@/lib/alta.functions";
+import { gmbSearch, checkDomain, startCheckout } from "@/lib/alta.functions";
 
 type StepId =
   | "restaurante"
@@ -33,6 +33,11 @@ function uid() {
   return Math.random().toString(36).slice(2, 11);
 }
 
+function checkoutErrorMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "Error desconocido";
+  return `Ha habido un problema al continuar al pago: ${detail}`;
+}
+
 export function AsistenteAlta() {
   const navigate = useNavigate();
   const [alta, setAlta] = useState<AltaState>(initialAlta);
@@ -49,16 +54,19 @@ export function AsistenteAlta() {
   const [botTyping, setBotTyping] = useState(false);
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("saving");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const promptedStepsRef = useRef<Set<StepId>>(new Set());
 
   const gmbSearchFn = useServerFn(gmbSearch);
   const checkDomainFn = useServerFn(checkDomain);
-  const saveAltaFn = useServerFn(saveAlta);
-  const createCheckoutFn = useServerFn(createCheckout);
+  const startCheckoutFn = useServerFn(startCheckout);
 
-  // Cuando entras en un paso, el bot añade su mensaje al chat.
+  // Cuando entras en un paso por primera vez, el bot añade su mensaje al chat.
   useEffect(() => {
     const text = botPromptForStep(step, alta);
     if (!text) return;
+    if (promptedStepsRef.current.has(step)) return;
+
+    promptedStepsRef.current.add(step);
     setBotTyping(true);
     const t = setTimeout(() => {
       setMessages((m) => [...m, { id: uid(), role: "bot", kind: "text", text }]);
@@ -310,21 +318,24 @@ export function AsistenteAlta() {
                       ? alta.existing_website_url
                       : null,
                     wants_custom_domain: !!alta.wants_custom_domain,
-                    domain: alta.domain,
+                    domain: alta.domain || generarSubdominio(alta.restaurant_name),
                     domain_is_custom: alta.domain_is_custom,
                     onetime_fee_concept: concept,
                     onetime_fee_amount: amount,
                     contact_name,
                     whatsapp,
+                    origin: window.location.origin,
                   };
 
-                  const { alta_id } = await saveAltaFn({ data: altaPayload });
+                  const checkoutPhaseTimer = window.setTimeout(() => {
+                    setCheckoutPhase("checkout");
+                  }, 500);
 
-                  setCheckoutPhase("checkout");
-                  const result = await createCheckoutFn({ data: { alta_id } });
+                  const result = await startCheckoutFn({ data: altaPayload });
+                  window.clearTimeout(checkoutPhaseTimer);
 
                   if (result.checkout_url) {
-                    window.location.href = result.checkout_url;
+                    window.location.assign(result.checkout_url);
                   } else {
                     navigate({ to: "/confirmacion", search: { alta_id: result.alta_id } });
                   }
@@ -337,7 +348,7 @@ export function AsistenteAlta() {
                       id: uid(),
                       role: "bot",
                       kind: "text",
-                      text: "Ha habido un problema al continuar al pago. Vuelve a intentarlo en un momento.",
+                      text: checkoutErrorMessage(e),
                     },
                   ]);
                   setStep("contacto");

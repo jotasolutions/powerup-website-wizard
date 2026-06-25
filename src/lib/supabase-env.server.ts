@@ -54,5 +54,6 @@ export function getAppOrigin(): string {
     return `https://${process.env.VERCEL_URL}`;
   }
 
-  return "http://localhost:8080";
+  const port = process.env.PORT ?? process.env.VITE_PORT ?? "8080";
+  return `http://localhost:${port}`;
 }
