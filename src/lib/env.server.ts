@@ -1,9 +1,13 @@
 function firstEnv(...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = process.env[key];
-    if (value) return value;
+    if (value) return normalizeEnvValue(value);
   }
   return undefined;
+}
+
+function normalizeEnvValue(raw: string): string {
+  return raw.trim().replace(/^["']|["']$/g, "");
 }
 
 function normalizeDatabaseUrl(raw: string): string {

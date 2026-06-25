@@ -18,10 +18,12 @@ npm run dev            # http://localhost:8080
 | `DATABASE_URL` | Neon Postgres (obligatorio) |
 | `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
 | `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
-| `GOOGLE_PLACES_API_KEY` | Google Places API (New) para búsqueda de restaurantes (obligatorio) |
+| `GOOGLE_PLACES_API_KEY` | Google Places API (New) para búsqueda de restaurantes (obligatorio en **Production**) |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
 
 La comprobación de dominios personalizados sigue en **mock** (`MOCK_DOMAIN_CHECK` en `alta-config.ts`) hasta integrar un registrador.
+
+Tras añadir o cambiar variables en Vercel, **redeploy de Production** para que el serverless las reciba. La API key de Google debe ser de **servidor** (sin restricción HTTP referrer).
 
 ## Flujo principal
 

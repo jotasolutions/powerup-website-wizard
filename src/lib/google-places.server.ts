@@ -45,7 +45,11 @@ export async function searchRestaurants(query: string): Promise<GmbResult[]> {
 
   if (!response.ok) {
     const detail = payload.error?.message ?? `HTTP ${response.status}`;
-    throw new Error(`Google Places no respondió correctamente: ${detail}`);
+    const hint =
+      response.status === 403
+        ? " Comprueba que la API key tenga habilitada Places API (New) y restricciones de aplicación «Ninguna» (es una llamada servidor-servidor)."
+        : "";
+    throw new Error(`Google Places no respondió correctamente: ${detail}${hint}`);
   }
 
   return (payload.places ?? [])
