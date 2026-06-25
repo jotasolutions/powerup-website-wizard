@@ -1,32 +1,32 @@
 import Stripe from "stripe";
 import { PLAN_PRO_ANUAL_DIAS_PRUEBA } from "./alta-config";
+import { getStripeAnnualPriceId, getStripeSecretKey, hasStripeConfig } from "./env.server";
 
 function getStripe(): Stripe {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const secretKey = getStripeSecretKey();
   if (!secretKey) {
-    throw new Error("STRIPE_SECRET_KEY no está configurada.");
+    throw new Error(
+      "STRIPE_SECRET_KEY no está configurada. Añádela en Vercel → Environment Variables.",
+    );
   }
 
   return new Stripe(secretKey);
 }
 
 function getProAnnualPriceId(): string {
-  const priceId =
-    process.env.STRIPE_PRICE_PRO_ANUAL ??
-    process.env.STRIPE_PRICE_PRO_YEARLY;
+  const priceId = getStripeAnnualPriceId();
 
   if (!priceId) {
-    throw new Error("STRIPE_PRICE_PRO_ANUAL o STRIPE_PRICE_PRO_YEARLY no está configurado.");
+    throw new Error(
+      "STRIPE_PRICE_PRO_ANUAL no está configurado. Añádelo en Vercel → Environment Variables.",
+    );
   }
 
   return priceId;
 }
 
 export function hasStripeCheckout(): boolean {
-  return Boolean(
-    process.env.STRIPE_SECRET_KEY &&
-      (process.env.STRIPE_PRICE_PRO_ANUAL ?? process.env.STRIPE_PRICE_PRO_YEARLY),
-  );
+  return hasStripeConfig();
 }
 
 export async function createAltaCheckoutSession(params: {

@@ -1,10 +1,33 @@
-<!-- LOVABLE:BEGIN -->
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+# PowerUp Website Wizard
+
+Asistente de alta de páginas web para restaurantes (PowerUp Menu). Stack: **TanStack Start** + **Vite** + **Nitro** (preset `vercel`), **Neon** (Drizzle ORM), **Stripe Checkout**, **Tailwind v4** + shadcn/ui.
+
+## Desarrollo local
+
+```bash
+npm install
+cp .env.example .env   # configurar DATABASE_URL, STRIPE_*, APP_URL
+npm run db:push        # aplicar schema en Neon
+npm run dev            # http://localhost:8080
+```
+
+## Variables de entorno
+
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | Neon Postgres (obligatorio) |
+| `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
+| `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
+| `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
+
+## Flujo principal
+
+1. UI: `src/components/asistente/AsistenteAlta.tsx`
+2. Server fn: `src/lib/alta.functions.ts` → `startCheckout` (insert Neon + sesión Stripe)
+3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout`
+
+## Convenciones
+
+- Server-only: archivos `*.server.ts` y `src/db/index.server.ts`
+- No commitear `.env` ni secretos
+- Mantener el preset Nitro `vercel` en `vite.config.ts` — el deploy lo gestiona Vercel directamente desde GitHub

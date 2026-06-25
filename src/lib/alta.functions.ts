@@ -6,7 +6,7 @@ import {
   hasStripeCheckout,
   verifyCheckoutSession,
 } from "./stripe.server";
-import { getAppOrigin } from "./supabase-env.server";
+import { getAppOrigin } from "./app-env.server";
 import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
 
 // ─────────────────────────────────────────────────────────────────────────────

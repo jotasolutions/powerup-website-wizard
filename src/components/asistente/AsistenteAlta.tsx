@@ -14,6 +14,7 @@ import {
   FEE_GESTION_WEB_PROPIA_EUR,
 } from "@/lib/alta-config";
 import { gmbSearch, checkDomain, startCheckout } from "@/lib/alta.functions";
+import { redirectToCheckout } from "@/lib/checkout-redirect";
 
 type StepId =
   | "restaurante"
@@ -335,7 +336,20 @@ export function AsistenteAlta() {
                   window.clearTimeout(checkoutPhaseTimer);
 
                   if (result.checkout_url) {
-                    window.location.assign(result.checkout_url);
+                    const mode = redirectToCheckout(result.checkout_url);
+                    if (mode === "popup") {
+                      setBotTyping(false);
+                      setMessages((m) => [
+                        ...m,
+                        {
+                          id: uid(),
+                          role: "bot",
+                          kind: "text",
+                          text: "Te hemos abierto el pago de Stripe en una nueva pestaña. Si no aparece, permite ventanas emergentes en el navegador.",
+                        },
+                      ]);
+                      setStep("contacto");
+                    }
                   } else {
                     navigate({ to: "/confirmacion", search: { alta_id: result.alta_id } });
                   }
