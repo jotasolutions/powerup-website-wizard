@@ -13,8 +13,9 @@ import {
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   FEE_GESTION_WEB_PROPIA_EUR,
 } from "@/lib/alta-config";
-import { gmbSearch, checkDomain, startCheckout } from "@/lib/alta.functions";
+import { gmbSearch, checkDomain, startCheckout, validateWhatsapp } from "@/lib/alta.functions";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
+import { toast } from "sonner";
 
 type StepId =
   | "restaurante"
@@ -60,6 +61,7 @@ export function AsistenteAlta() {
   const gmbSearchFn = useServerFn(gmbSearch);
   const checkDomainFn = useServerFn(checkDomain);
   const startCheckoutFn = useServerFn(startCheckout);
+  const validateWhatsappFn = useServerFn(validateWhatsapp);
 
   // Cuando entras en un paso por primera vez, el bot añade su mensaje al chat.
   useEffect(() => {
@@ -294,6 +296,19 @@ export function AsistenteAlta() {
             <StepContacto
               alta={alta}
               onSubmit={async (contact_name, whatsapp) => {
+                try {
+                  await validateWhatsappFn({ data: { phone: whatsapp } });
+                } catch (e) {
+                  const message =
+                    e instanceof Error && e.message === "invalid_whatsapp_number"
+                      ? "El número ingresado no es un número válido de WhatsApp."
+                      : e instanceof Error
+                        ? e.message
+                        : "No se pudo validar el número de WhatsApp.";
+                  toast.error(message);
+                  return;
+                }
+
                 pushUser(`${contact_name} · ${whatsapp}`);
                 setAlta((a) => ({ ...a, contact_name, whatsapp }));
                 setCheckoutPhase("saving");
@@ -760,20 +775,26 @@ function StepContacto({
   onSubmit,
 }: {
   alta: AltaState;
-  onSubmit: (name: string, whatsapp: string) => void;
+  onSubmit: (name: string, whatsapp: string) => void | Promise<void>;
 }) {
   const [name, setName] = useState(alta.contact_name);
   const [wa, setWa] = useState(alta.whatsapp);
+  const [validating, setValidating] = useState(false);
   const validName = name.trim().length >= 2;
   const validWa = /[+\d][\d\s-]{7,}/.test(wa.trim());
   const valid = validName && validWa;
 
   return (
     <form
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (!valid) return;
-        onSubmit(name.trim(), wa.trim());
+        if (!valid || validating) return;
+        setValidating(true);
+        try {
+          await onSubmit(name.trim(), wa.trim());
+        } finally {
+          setValidating(false);
+        }
       }}
       className="space-y-3"
     >
@@ -783,16 +804,23 @@ function StepContacto({
           placeholder="Tu nombre"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          disabled={validating}
         />
         <Input
           placeholder="+34 600 000 000"
           inputMode="tel"
           value={wa}
           onChange={(e) => setWa(e.target.value)}
+          disabled={validating}
         />
       </div>
-      <Button type="submit" disabled={!valid} className="w-full" size="lg">
-        <Check className="mr-1.5 h-4 w-4" /> Continuar al pago
+      <Button type="submit" disabled={!valid || validating} className="w-full" size="lg">
+        {validating ? (
+          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+        ) : (
+          <Check className="mr-1.5 h-4 w-4" />
+        )}
+        {validating ? "Validando WhatsApp…" : "Continuar al pago"}
       </Button>
       <p className="text-center text-[11px] text-muted-foreground">
         Te contactaremos por WhatsApp para terminar la configuración.

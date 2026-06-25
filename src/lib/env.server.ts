@@ -79,3 +79,37 @@ export function getGooglePlacesApiKey(): string | undefined {
 export function hasGooglePlaces(): boolean {
   return Boolean(getGooglePlacesApiKey());
 }
+
+export function getEvolutionApiUrl(): string {
+  const url = firstEnv("EVOLUTION_API_URL");
+  if (!url) {
+    throw new Error(
+      "Falta EVOLUTION_API_URL. Añádela en Vercel → Environment Variables (o en tu .env local).",
+    );
+  }
+  return url.replace(/\/$/, "");
+}
+
+export function getEvolutionInstanceName(): string {
+  const name = firstEnv("EVOLUTION_INSTANCE_NAME");
+  if (!name) {
+    throw new Error(
+      "Falta EVOLUTION_INSTANCE_NAME. Añádela en Vercel → Environment Variables (o en tu .env local).",
+    );
+  }
+  return name;
+}
+
+export function getEvolutionApiKey(): string | undefined {
+  return firstEnv("EVOLUTION_API_KEY");
+}
+
+export function hasEvolutionConfig(): boolean {
+  try {
+    getEvolutionApiUrl();
+    getEvolutionInstanceName();
+    return true;
+  } catch {
+    return false;
+  }
+}

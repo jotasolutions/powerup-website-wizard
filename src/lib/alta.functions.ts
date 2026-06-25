@@ -8,8 +8,36 @@ import {
 } from "./stripe.server";
 import { getAppOrigin } from "./app-env.server";
 import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
-import { hasGooglePlaces } from "./env.server";
+import { hasEvolutionConfig, hasGooglePlaces } from "./env.server";
 import { searchRestaurants } from "./google-places.server";
+import WhatsappRepository from "@/server/repositories/WhatsappRepository";
+
+function normalizeWhatsapp(phone: string): string {
+  return phone.replace(/[^\d]/g, "");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// validate-whatsapp: comprueba si el número existe en WhatsApp vía Evolution.
+// ─────────────────────────────────────────────────────────────────────────────
+export const validateWhatsapp = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ phone: z.string().min(3) }).parse(input))
+  .handler(async ({ data }) => {
+    if (!hasEvolutionConfig()) {
+      throw new Error("Falta configuración de Evolution API en las variables de entorno.");
+    }
+
+    const phone = normalizeWhatsapp(data.phone);
+    if (phone.length < 8) {
+      throw new Error("invalid_whatsapp_number");
+    }
+
+    const exists = await WhatsappRepository.doesWhatsappNumExists(phone);
+    if (!exists) {
+      throw new Error("invalid_whatsapp_number");
+    }
+
+    return { valid: true as const };
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // gmb-search: busca restaurantes en Google Business Profile / Places.
