@@ -5,11 +5,33 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const tslibEsm = require.resolve("tslib/tslib.es6.mjs");
 
 export default defineConfig({
+  vite: {
+    resolve: {
+      alias: {
+        tslib: tslibEsm,
+      },
+    },
+  },
   nitro: {
     preset: "vercel",
-    noExternals: ["tslib", "@supabase/supabase-js"],
+    alias: {
+      tslib: tslibEsm,
+    },
+    noExternals: [
+      "tslib",
+      "@supabase/supabase-js",
+      "@supabase/auth-js",
+      "@supabase/functions-js",
+      "@supabase/postgrest-js",
+      "@supabase/realtime-js",
+      "@supabase/storage-js",
+    ],
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).

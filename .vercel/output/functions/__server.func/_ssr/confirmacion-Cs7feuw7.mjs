@@ -1,11 +1,30 @@
+import { i as __toESM } from "../_runtime.mjs";
 import { h as Link } from "../_libs/@tanstack/react-router+[...].mjs";
-import { t as formatEUR } from "./alta-config-CsywT69t.mjs";
+import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { n as require_jsx_runtime } from "../_libs/react+tanstack__react-query.mjs";
+import { a as finalizeCheckout, s as useServerFn, t as formatEUR } from "./alta-config-CsywT69t.mjs";
 import { t as Button } from "./button-BginaAqG.mjs";
+import { t as Route } from "./confirmacion-UZYF2cDl.mjs";
 import { r as Check } from "../_libs/lucide-react.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/confirmacion-B2dh3Rq8.js
+//#region node_modules/.nitro/vite/services/ssr/assets/confirmacion-Cs7feuw7.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 function Confirmacion() {
+	const { alta_id, session_id } = Route.useSearch();
+	const finalizeCheckoutFn = useServerFn(finalizeCheckout);
+	(0, import_react.useEffect)(() => {
+		if (!alta_id || !session_id) return;
+		finalizeCheckoutFn({ data: {
+			alta_id,
+			session_id
+		} }).catch((error) => {
+			console.error("No se pudo finalizar el checkout:", error);
+		});
+	}, [
+		alta_id,
+		session_id,
+		finalizeCheckoutFn
+	]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 		className: "container-narrow flex min-h-screen flex-col items-center justify-center py-10 text-center",
 		children: [
