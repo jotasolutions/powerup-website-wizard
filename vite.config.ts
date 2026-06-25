@@ -31,6 +31,8 @@ export default defineConfig({
       "@supabase/postgrest-js",
       "@supabase/realtime-js",
       "@supabase/storage-js",
+      "@neondatabase/serverless",
+      "drizzle-orm",
     ],
   },
   tanstackStart: {

@@ -7,9 +7,7 @@ function getStripe(): Stripe {
     throw new Error("STRIPE_SECRET_KEY no está configurada.");
   }
 
-  return new Stripe(secretKey, {
-    apiVersion: "2025-02-24.acacia",
-  });
+  return new Stripe(secretKey);
 }
 
 function getProAnnualPriceId(): string {

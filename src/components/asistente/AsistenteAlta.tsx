@@ -13,7 +13,7 @@ import {
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   FEE_GESTION_WEB_PROPIA_EUR,
 } from "@/lib/alta-config";
-import { gmbSearch, checkDomain, createCheckout } from "@/lib/alta.functions";
+import { gmbSearch, checkDomain, saveAlta, createCheckout } from "@/lib/alta.functions";
 
 type StepId =
   | "restaurante"
@@ -24,6 +24,8 @@ type StepId =
   | "resumen"
   | "contacto"
   | "enviando";
+
+type CheckoutPhase = "saving" | "checkout";
 
 const TOTAL_STEPS = 6; // restaurante, web, dominio, resumen, contacto, pago
 
@@ -45,10 +47,12 @@ export function AsistenteAlta() {
     },
   ]);
   const [botTyping, setBotTyping] = useState(false);
+  const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("saving");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const gmbSearchFn = useServerFn(gmbSearch);
   const checkDomainFn = useServerFn(checkDomain);
+  const saveAltaFn = useServerFn(saveAlta);
   const createCheckoutFn = useServerFn(createCheckout);
 
   // Cuando entras en un paso, el bot añade su mensaje al chat.
@@ -283,6 +287,7 @@ export function AsistenteAlta() {
               onSubmit={async (contact_name, whatsapp) => {
                 pushUser(`${contact_name} · ${whatsapp}`);
                 setAlta((a) => ({ ...a, contact_name, whatsapp }));
+                setCheckoutPhase("saving");
                 setStep("enviando");
                 try {
                   const concept = alta.has_existing_website
@@ -296,24 +301,27 @@ export function AsistenteAlta() {
                       ? (alta.domain_price ?? 0)
                       : null;
 
-                  const result = await createCheckoutFn({
-                    data: {
-                      restaurant_name: alta.restaurant_name,
-                      restaurant_address: alta.restaurant_address || null,
-                      gmb_place_id: alta.gmb_place_id,
-                      has_existing_website: !!alta.has_existing_website,
-                      existing_website_url: alta.has_existing_website
-                        ? alta.existing_website_url
-                        : null,
-                      wants_custom_domain: !!alta.wants_custom_domain,
-                      domain: alta.domain,
-                      domain_is_custom: alta.domain_is_custom,
-                      onetime_fee_concept: concept,
-                      onetime_fee_amount: amount,
-                      contact_name,
-                      whatsapp,
-                    },
-                  });
+                  const altaPayload = {
+                    restaurant_name: alta.restaurant_name,
+                    restaurant_address: alta.restaurant_address || null,
+                    gmb_place_id: alta.gmb_place_id,
+                    has_existing_website: !!alta.has_existing_website,
+                    existing_website_url: alta.has_existing_website
+                      ? alta.existing_website_url
+                      : null,
+                    wants_custom_domain: !!alta.wants_custom_domain,
+                    domain: alta.domain,
+                    domain_is_custom: alta.domain_is_custom,
+                    onetime_fee_concept: concept,
+                    onetime_fee_amount: amount,
+                    contact_name,
+                    whatsapp,
+                  };
+
+                  const { alta_id } = await saveAltaFn({ data: altaPayload });
+
+                  setCheckoutPhase("checkout");
+                  const result = await createCheckoutFn({ data: { alta_id } });
 
                   if (result.checkout_url) {
                     window.location.href = result.checkout_url;
@@ -341,7 +349,9 @@ export function AsistenteAlta() {
           {step === "enviando" && (
             <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Preparando tu pago seguro…
+              {checkoutPhase === "saving"
+                ? "Guardando tus datos…"
+                : "Preparando tu pago seguro…"}
             </div>
           )}
         </div>

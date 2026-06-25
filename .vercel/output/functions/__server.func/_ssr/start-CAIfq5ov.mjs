@@ -1,6 +1,6 @@
 import { n as createStart, t as createMiddleware } from "./createStart-Dt05N14y.mjs";
-import { t as createClient } from "../_libs/supabase__supabase-js.mjs";
 import { t as renderErrorPage } from "./ssr.mjs";
+import { t as createClient } from "../_libs/supabase__supabase-js.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/start-CAIfq5ov.js
 function isNewSupabaseApiKey(value) {
 	return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");

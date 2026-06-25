@@ -1,8 +1,19 @@
 import { i as TSS_SERVER_FUNCTION, l as createServerFn } from "./esm-Dova13aH.mjs";
-import { t as createClient } from "../_libs/supabase__supabase-js.mjs";
 import { a as stringType, i as objectType, n as enumType, r as numberType, t as booleanType } from "../_libs/zod.mjs";
 import { t as Stripe } from "../_libs/stripe.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/alta.functions-BXDTdGxH.js
+import { a as timestamp, c as boolean, i as uuid, l as pgEnum, n as eq, o as text, r as pgTable, s as numeric, t as drizzle } from "../_libs/drizzle-orm.mjs";
+import { t as cs } from "../_libs/neondatabase__serverless.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/alta.functions-B7Qz8yZ9.js
+var __defProp = Object.defineProperty;
+var __exportAll = (all, no_symbols) => {
+	let target = {};
+	for (var name in all) __defProp(target, name, {
+		get: all[name],
+		enumerable: true
+	});
+	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
+	return target;
+};
 var createServerRpc = (serverFnMeta, splitImportFn) => {
 	const url = "/_serverFn/" + serverFnMeta.id;
 	return Object.assign(splitImportFn, {
@@ -11,92 +22,10 @@ var createServerRpc = (serverFnMeta, splitImportFn) => {
 		[TSS_SERVER_FUNCTION]: true
 	});
 };
-function isNewSupabaseApiKey(value) {
-	return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
-}
-function createSupabaseFetch(supabaseKey) {
-	return (input, init) => {
-		const headers = new Headers(typeof Request !== "undefined" && input instanceof Request ? input.headers : void 0);
-		if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-		if (isNewSupabaseApiKey(supabaseKey) && headers.get("Authorization") === `Bearer ${supabaseKey}`) headers.delete("Authorization");
-		headers.set("apikey", supabaseKey);
-		return fetch(input, {
-			...init,
-			headers
-		});
-	};
-}
-function createPublishableClient() {
-	const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-	const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-	if (!url || !publishableKey) throw new Error("Faltan SUPABASE_URL o SUPABASE_PUBLISHABLE_KEY.");
-	return createClient(url, publishableKey, {
-		global: { fetch: createSupabaseFetch(publishableKey) },
-		auth: {
-			persistSession: false,
-			autoRefreshToken: false
-		}
-	});
-}
-function isServiceRoleUnavailable(error) {
-	const message = error instanceof Error ? error.message : String(error);
-	return message.includes("SUPABASE_SERVICE_ROLE_KEY") || message.includes("Missing Supabase environment variable");
-}
-async function withSupabaseAdmin(adminOp, fallbackOp) {
-	const { supabaseAdmin } = await import("./client.server-Bw6iWMJ-.mjs");
-	try {
-		return await adminOp(supabaseAdmin);
-	} catch (error) {
-		if (!isServiceRoleUnavailable(error)) throw error;
-		return await fallbackOp(createPublishableClient());
-	}
-}
-async function insertAlta(payload) {
-	return withSupabaseAdmin(async (admin) => {
-		const { data, error } = await admin.from("altas").insert({
-			...payload,
-			status: "pending_payment"
-		}).select("id").single();
-		if (error || !data) throw new Error(`No se pudo guardar el alta: ${error?.message ?? "desconocido"}`);
-		return data.id;
-	}, async (client) => {
-		const { data, error } = await client.rpc("create_alta", {
-			p_restaurant_name: payload.restaurant_name,
-			p_restaurant_address: payload.restaurant_address,
-			p_gmb_place_id: payload.gmb_place_id,
-			p_has_existing_website: payload.has_existing_website,
-			p_existing_website_url: payload.existing_website_url,
-			p_wants_custom_domain: payload.wants_custom_domain,
-			p_domain: payload.domain,
-			p_domain_is_custom: payload.domain_is_custom,
-			p_onetime_fee_concept: payload.onetime_fee_concept,
-			p_onetime_fee_amount: payload.onetime_fee_amount,
-			p_contact_name: payload.contact_name,
-			p_whatsapp: payload.whatsapp
-		});
-		if (error || !data) throw new Error(`No se pudo guardar el alta en local: ${error?.message ?? "desconocido"}. En Lovable Cloud el backend usa supabaseAdmin automáticamente.`);
-		return data;
-	});
-}
-async function markAltaPaid(altaId, stripeSessionId) {
-	await withSupabaseAdmin(async (admin) => {
-		const { error } = await admin.from("altas").update({
-			status: "paid",
-			stripe_session_id: stripeSessionId
-		}).eq("id", altaId);
-		if (error) throw new Error(`No se pudo actualizar el alta: ${error.message}`);
-	}, async (client) => {
-		const { error } = await client.rpc("mark_alta_paid", {
-			p_alta_id: altaId,
-			p_stripe_session_id: stripeSessionId
-		});
-		if (error) throw new Error(`No se pudo actualizar el alta: ${error.message}`);
-	});
-}
 function getStripe() {
 	const secretKey = process.env.STRIPE_SECRET_KEY;
 	if (!secretKey) throw new Error("STRIPE_SECRET_KEY no está configurada.");
-	return new Stripe(secretKey, { apiVersion: "2025-02-24.acacia" });
+	return new Stripe(secretKey);
 }
 function getProAnnualPriceId() {
 	const priceId = process.env.STRIPE_PRICE_PRO_ANUAL ?? process.env.STRIPE_PRICE_PRO_YEARLY;
@@ -145,6 +74,82 @@ async function verifyCheckoutSession(altaId, sessionId) {
 	const session = await getStripe().checkout.sessions.retrieve(sessionId);
 	if (session.metadata?.alta_id !== altaId && session.client_reference_id !== altaId) return false;
 	return session.status === "complete" || session.payment_status === "paid";
+}
+function getAppOrigin() {
+	const explicit = process.env.APP_URL ?? process.env.PUBLIC_URL ?? process.env.VITE_APP_URL ?? process.env.LOVABLE_PREVIEW_URL;
+	if (explicit) return explicit.replace(/\/$/, "");
+	if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+	return "http://localhost:8080";
+}
+var schema_exports = /* @__PURE__ */ __exportAll({
+	altaFeeConceptEnum: () => altaFeeConceptEnum,
+	altaStatusEnum: () => altaStatusEnum,
+	altas: () => altas
+});
+var altaStatusEnum = pgEnum("alta_status", ["pending_payment", "paid"]);
+var altaFeeConceptEnum = pgEnum("alta_fee_concept", ["gestion", "dominio"]);
+var altas = pgTable("altas", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	restaurantName: text("restaurant_name").notNull(),
+	restaurantAddress: text("restaurant_address"),
+	gmbPlaceId: text("gmb_place_id"),
+	hasExistingWebsite: boolean("has_existing_website").notNull().default(false),
+	existingWebsiteUrl: text("existing_website_url"),
+	wantsCustomDomain: boolean("wants_custom_domain").notNull().default(false),
+	domain: text("domain"),
+	domainIsCustom: boolean("domain_is_custom").notNull().default(false),
+	onetimeFeeConcept: altaFeeConceptEnum("onetime_fee_concept"),
+	onetimeFeeAmount: numeric("onetime_fee_amount", {
+		precision: 10,
+		scale: 2
+	}),
+	contactName: text("contact_name").notNull(),
+	whatsapp: text("whatsapp").notNull(),
+	status: altaStatusEnum("status").notNull().default("pending_payment"),
+	stripeSessionId: text("stripe_session_id")
+});
+function getDatabaseUrl() {
+	const url = process.env.DATABASE_URL;
+	if (!url) throw new Error("Falta DATABASE_URL.");
+	return url;
+}
+var _db;
+function getDb() {
+	if (!_db) _db = drizzle({
+		client: cs(getDatabaseUrl()),
+		schema: schema_exports
+	});
+	return _db;
+}
+async function insertAlta(payload) {
+	const [row] = await getDb().insert(altas).values({
+		restaurantName: payload.restaurant_name,
+		restaurantAddress: payload.restaurant_address,
+		gmbPlaceId: payload.gmb_place_id,
+		hasExistingWebsite: payload.has_existing_website,
+		existingWebsiteUrl: payload.existing_website_url,
+		wantsCustomDomain: payload.wants_custom_domain,
+		domain: payload.domain,
+		domainIsCustom: payload.domain_is_custom,
+		onetimeFeeConcept: payload.onetime_fee_concept,
+		onetimeFeeAmount: payload.onetime_fee_amount != null ? String(payload.onetime_fee_amount) : null,
+		contactName: payload.contact_name,
+		whatsapp: payload.whatsapp,
+		status: "pending_payment"
+	}).returning({ id: altas.id });
+	if (!row) throw new Error("No se pudo guardar el alta.");
+	return row.id;
+}
+async function markAltaPaid(altaId, stripeSessionId) {
+	if ((await getDb().update(altas).set({
+		status: "paid",
+		stripeSessionId
+	}).where(eq(altas.id, altaId)).returning({ id: altas.id })).length === 0) throw new Error("No se pudo actualizar el alta.");
+}
+async function getAltaById(altaId) {
+	const [row] = await getDb().select().from(altas).where(eq(altas.id, altaId)).limit(1);
+	return row ?? null;
 }
 var gmbSearch_createServerFn_handler = createServerRpc({
 	id: "36abb3efca09c2571234e96d44adddb3ffb369a84faab4f425b96117620ef42b",
@@ -211,47 +216,58 @@ var AltaInput = objectType({
 	contact_name: stringType().min(1),
 	whatsapp: stringType().min(3)
 });
-function getRequestOrigin() {
-	return process.env.APP_URL ?? process.env.PUBLIC_URL ?? process.env.VITE_APP_URL ?? "http://localhost:8081";
-}
+var saveAlta_createServerFn_handler = createServerRpc({
+	id: "2682a01a241440f0efc0d656fbe1540a3550d700215c154e59a561ba8fda8f16",
+	name: "saveAlta",
+	filename: "src/lib/alta.functions.ts"
+}, (opts) => saveAlta.__executeServer(opts));
+var saveAlta = createServerFn({ method: "POST" }).inputValidator((input) => AltaInput.parse(input)).handler(saveAlta_createServerFn_handler, async ({ data }) => {
+	return {
+		alta_id: await insertAlta({
+			restaurant_name: data.restaurant_name,
+			restaurant_address: data.restaurant_address,
+			gmb_place_id: data.gmb_place_id,
+			has_existing_website: data.has_existing_website,
+			existing_website_url: data.existing_website_url,
+			wants_custom_domain: data.wants_custom_domain,
+			domain: data.domain,
+			domain_is_custom: data.domain_is_custom,
+			onetime_fee_concept: data.onetime_fee_concept,
+			onetime_fee_amount: data.onetime_fee_amount,
+			contact_name: data.contact_name,
+			whatsapp: data.whatsapp
+		}),
+		saved: true
+	};
+});
 var createCheckout_createServerFn_handler = createServerRpc({
 	id: "cb1ed746c881f0a1ac4a5398ac39153fc72154bf77147b8c4b9772c624307c5d",
 	name: "createCheckout",
 	filename: "src/lib/alta.functions.ts"
 }, (opts) => createCheckout.__executeServer(opts));
-var createCheckout = createServerFn({ method: "POST" }).inputValidator((input) => AltaInput.parse(input)).handler(createCheckout_createServerFn_handler, async ({ data }) => {
-	const altaId = await insertAlta({
-		restaurant_name: data.restaurant_name,
-		restaurant_address: data.restaurant_address,
-		gmb_place_id: data.gmb_place_id,
-		has_existing_website: data.has_existing_website,
-		existing_website_url: data.existing_website_url,
-		wants_custom_domain: data.wants_custom_domain,
-		domain: data.domain,
-		domain_is_custom: data.domain_is_custom,
-		onetime_fee_concept: data.onetime_fee_concept,
-		onetime_fee_amount: data.onetime_fee_amount,
-		contact_name: data.contact_name,
-		whatsapp: data.whatsapp
-	});
+var createCheckout = createServerFn({ method: "POST" }).inputValidator((input) => objectType({ alta_id: stringType().uuid() }).parse(input)).handler(createCheckout_createServerFn_handler, async ({ data }) => {
+	const alta = await getAltaById(data.alta_id);
+	if (!alta) throw new Error("No encontramos tu solicitud. Vuelve a intentarlo.");
+	if (alta.status !== "pending_payment") throw new Error("Esta solicitud ya fue procesada.");
 	if (!hasStripeCheckout()) {
-		await markAltaPaid(altaId, `mock_${altaId}`);
+		await markAltaPaid(data.alta_id, `mock_${data.alta_id}`);
 		return {
-			alta_id: altaId,
+			alta_id: data.alta_id,
 			checkout_url: null,
 			mock: true
 		};
 	}
+	const onetimeFeeAmount = alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
 	const session = await createAltaCheckoutSession({
-		altaId,
-		origin: getRequestOrigin(),
-		restaurantName: data.restaurant_name,
-		onetimeFeeConcept: data.onetime_fee_concept,
-		onetimeFeeAmount: data.onetime_fee_amount
+		altaId: data.alta_id,
+		origin: getAppOrigin(),
+		restaurantName: alta.restaurantName,
+		onetimeFeeConcept: alta.onetimeFeeConcept,
+		onetimeFeeAmount
 	});
 	if (!session.url) throw new Error("Stripe no devolvió una URL de checkout.");
 	return {
-		alta_id: altaId,
+		alta_id: data.alta_id,
 		checkout_url: session.url,
 		mock: false
 	};
@@ -280,4 +296,4 @@ function capitalize(s) {
 	return s.charAt(0).toUpperCase() + s.slice(1);
 }
 //#endregion
-export { checkDomain_createServerFn_handler, createCheckout_createServerFn_handler, finalizeCheckout_createServerFn_handler, gmbSearch_createServerFn_handler };
+export { checkDomain_createServerFn_handler, createCheckout_createServerFn_handler, finalizeCheckout_createServerFn_handler, gmbSearch_createServerFn_handler, saveAlta_createServerFn_handler };
