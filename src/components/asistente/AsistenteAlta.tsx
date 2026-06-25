@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,17 @@ export function AsistenteAlta() {
   const [botTyping, setBotTyping] = useState(false);
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("saving");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+      });
+    });
+  }, []);
 
   const gmbSearchFn = useServerFn(gmbSearch);
   const checkDomainFn = useServerFn(checkDomain);
@@ -79,10 +89,19 @@ export function AsistenteAlta() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // Auto-scroll al final
+  // Auto-scroll al final cuando cambian mensajes, paso o altura del footer
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, botTyping, step]);
+    scrollToBottom();
+  }, [messages, botTyping, step, scrollToBottom]);
+
+  useEffect(() => {
+    const footer = footerRef.current;
+    if (!footer) return;
+
+    const ro = new ResizeObserver(() => scrollToBottom("instant"));
+    ro.observe(footer);
+    return () => ro.disconnect();
+  }, [scrollToBottom]);
 
   function pushUser(text: string) {
     setMessages((m) => [...m, { id: uid(), role: "user", kind: "text", text }]);
@@ -105,9 +124,9 @@ export function AsistenteAlta() {
   const stepIndex = stepIndexFor(step);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur">
+      <header className="z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
         <div className="container-narrow flex items-center justify-between py-3">
           <div className="flex items-center gap-2">
             {history.length > 0 && step !== "enviando" ? (
@@ -144,8 +163,7 @@ export function AsistenteAlta() {
       {/* Chat scrollable */}
       <main
         ref={scrollRef}
-        className="container-narrow flex-1 space-y-4 overflow-y-auto py-6 pb-8"
-        style={{ minHeight: 0 }}
+        className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
       >
         {messages.map((m) => (
           <ChatBubble key={m.id} role={m.role}>
@@ -153,10 +171,14 @@ export function AsistenteAlta() {
           </ChatBubble>
         ))}
         {botTyping && <TypingBubble />}
+        <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
       </main>
 
       {/* Zona de input según el paso */}
-      <footer className="sticky bottom-0 border-t border-border/60 bg-background/95 backdrop-blur">
+      <footer
+        ref={footerRef}
+        className="shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
+      >
         <div className="container-narrow py-4">
           {step === "restaurante" && (
             <StepRestaurante
@@ -580,12 +602,12 @@ function StepRestaurante({
 
 function ChoiceRow({ options }: { options: { label: string; onClick: () => void }[] }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex w-full flex-col gap-2">
       {options.map((o) => (
         <button
           key={o.label}
           onClick={o.onClick}
-          className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
+          className="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
         >
           {o.label}
         </button>
@@ -704,9 +726,6 @@ function ResumenCard({ alta, onContinue }: { alta: AltaState; onContinue: () => 
       <div className="rounded-2xl border bg-card p-4 shadow-card">
         <div className="space-y-2.5 text-sm">
           <Row label="Restaurante" value={alta.restaurant_name} />
-          {alta.restaurant_address && (
-            <Row label="Dirección" value={alta.restaurant_address} muted />
-          )}
           {alta.has_existing_website ? (
             <Row label="Web actual" value={alta.existing_website_url} link />
           ) : alta.domain_is_custom ? (
@@ -748,19 +767,17 @@ function ResumenCard({ alta, onContinue }: { alta: AltaState; onContinue: () => 
 function Row({
   label,
   value,
-  muted,
   link,
 }: {
   label: string;
   value: string;
-  muted?: boolean;
   link?: boolean;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span
-        className={`text-right ${muted ? "text-muted-foreground" : "font-medium"} ${link ? "underline underline-offset-2" : ""}`}
+        className={`text-right font-medium ${link ? "underline underline-offset-2" : ""}`}
       >
         {value}
       </span>

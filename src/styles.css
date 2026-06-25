@@ -87,12 +87,13 @@
   --input: #e5e5e5;
   --ring: #a1a1a1;
 
-  --bubble-bot: #f5f5f5;
+  --bubble-bot: #ffffff;
   --bubble-bot-foreground: #171717;
 
-  --gradient-page: #ffffff;
+  --gradient-page-image: url("/images/bg-header.png");
   --shadow-soft: 0 10px 40px -12px color-mix(in oklab, var(--brand) 18%, transparent);
   --shadow-card: 0 4px 24px -8px rgb(0 0 0 / 0.06);
+  --shadow-bubble: 0 2px 10px -2px rgb(0 0 0 / 0.08), 0 1px 3px -1px rgb(0 0 0 / 0.04);
 }
 
 @layer base {
@@ -102,7 +103,12 @@
 
   html,
   body {
-    background: var(--gradient-page);
+    background-color: #ffffff;
+    background-image: var(--gradient-page-image);
+    background-size: cover;
+    background-position: bottom center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
@@ -132,6 +138,10 @@
 
 @utility shadow-card {
   box-shadow: var(--shadow-card);
+}
+
+@utility shadow-bubble {
+  box-shadow: var(--shadow-bubble);
 }
 
 @utility bg-brand-gradient {

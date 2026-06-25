@@ -15,7 +15,7 @@ import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
         <img src="/images/powerup-logo.png" alt="PowerUp Menu" className="mx-auto h-8 w-auto" />
         <h1 className="mt-8 text-7xl font-medium text-foreground">404</h1>
@@ -38,7 +38,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
         <img src="/images/powerup-logo.png" alt="PowerUp Menu" className="mx-auto h-8 w-auto" />
         <h1 className="mt-8 text-xl font-medium tracking-tight text-foreground">
