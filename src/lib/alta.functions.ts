@@ -1,6 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { MOCK_MODE, FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
+import { insertAlta, markAltaPaid } from "./supabase-server";
+import {
+  createAltaCheckoutSession,
+  hasStripeCheckout,
+  verifyCheckoutSession,
+} from "./stripe.server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // gmb-search: busca restaurantes en Google Business Profile / Places.
@@ -34,13 +40,10 @@ export const gmbSearch = createServerFn({ method: "POST" })
           place_id: "mock_place_004",
         },
       ];
-      // pequeña simulación de latencia para que se note el "buscando"
       await new Promise((r) => setTimeout(r, 350));
       return { results: all.filter((_, i) => i < (q.length < 3 ? 3 : 4)) };
     }
 
-    // TODO: Integración real con Google Places API.
-    // Lee la API key desde Lovable Cloud secrets (p. ej. GOOGLE_PLACES_API_KEY).
     throw new Error("MOCK_MODE desactivado pero la integración real no está configurada.");
   });
 
@@ -58,13 +61,10 @@ export const checkDomain = createServerFn({ method: "POST" })
       if (domain.includes("test")) {
         return { available: false, price: 0 };
       }
-      // precio final aleatorio 12-40 €
       const price = Math.round((12 + Math.random() * 28) * 100) / 100;
       return { available: true, price };
     }
 
-    // TODO: Integración real con el registrador de dominios.
-    // price = coste registrador + nuestro recargo, calculado aquí.
     throw new Error("MOCK_MODE desactivado pero la integración real no está configurada.");
   });
 
@@ -86,52 +86,77 @@ const AltaInput = z.object({
   whatsapp: z.string().min(3),
 });
 
+function getRequestOrigin(): string {
+  return (
+    process.env.APP_URL ??
+    process.env.PUBLIC_URL ??
+    process.env.VITE_APP_URL ??
+    "http://localhost:8081"
+  );
+}
+
 export const createCheckout = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => AltaInput.parse(input))
   .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const altaId = await insertAlta({
+      restaurant_name: data.restaurant_name,
+      restaurant_address: data.restaurant_address,
+      gmb_place_id: data.gmb_place_id,
+      has_existing_website: data.has_existing_website,
+      existing_website_url: data.existing_website_url,
+      wants_custom_domain: data.wants_custom_domain,
+      domain: data.domain,
+      domain_is_custom: data.domain_is_custom,
+      onetime_fee_concept: data.onetime_fee_concept,
+      onetime_fee_amount: data.onetime_fee_amount,
+      contact_name: data.contact_name,
+      whatsapp: data.whatsapp,
+    });
 
-    const { data: row, error } = await supabaseAdmin
-      .from("altas")
-      .insert({
-        restaurant_name: data.restaurant_name,
-        restaurant_address: data.restaurant_address,
-        gmb_place_id: data.gmb_place_id,
-        has_existing_website: data.has_existing_website,
-        existing_website_url: data.existing_website_url,
-        wants_custom_domain: data.wants_custom_domain,
-        domain: data.domain,
-        domain_is_custom: data.domain_is_custom,
-        onetime_fee_concept: data.onetime_fee_concept,
-        onetime_fee_amount: data.onetime_fee_amount,
-        contact_name: data.contact_name,
-        whatsapp: data.whatsapp,
-        status: "pending_payment",
+    const useStripe = hasStripeCheckout();
+
+    if (!useStripe) {
+      await markAltaPaid(altaId, `mock_${altaId}`);
+      void FEE_GESTION_WEB_PROPIA_EUR;
+      return { alta_id: altaId, checkout_url: null as string | null, mock: true };
+    }
+
+    const session = await createAltaCheckoutSession({
+      altaId,
+      origin: getRequestOrigin(),
+      restaurantName: data.restaurant_name,
+      onetimeFeeConcept: data.onetime_fee_concept,
+      onetimeFeeAmount: data.onetime_fee_amount,
+    });
+
+    if (!session.url) {
+      throw new Error("Stripe no devolvió una URL de checkout.");
+    }
+
+    return { alta_id: altaId, checkout_url: session.url, mock: false };
+  });
+
+export const finalizeCheckout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        alta_id: z.string().uuid(),
+        session_id: z.string().min(1),
       })
-      .select("id")
-      .single();
-
-    if (error || !row) {
-      throw new Error(`No se pudo guardar el alta: ${error?.message ?? "desconocido"}`);
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    if (!hasStripeCheckout()) {
+      return { ok: true, mock: true };
     }
 
-    if (MOCK_MODE) {
-      // En mock saltamos Stripe y devolvemos directamente confirmación.
-      await supabaseAdmin
-        .from("altas")
-        .update({ status: "paid", stripe_session_id: `mock_${row.id}` })
-        .eq("id", row.id);
-      return { alta_id: row.id, checkout_url: null, mock: true };
+    const isValid = await verifyCheckoutSession(data.alta_id, data.session_id);
+    if (!isValid) {
+      throw new Error("El pago no se ha completado todavía.");
     }
 
-    // TODO: Crear sesión real de Stripe Checkout con:
-    //  - Subscripción del plan Pro Anual (Stripe Price ID configurable) + trial_period_days ≈ 30
-    //  - Si onetime_fee_concept != null → añadir línea one-time con onetime_fee_amount
-    //  - Activar billing_address_collection y tax_id_collection
-    //  - success_url=/confirmacion?alta_id=<id>, cancel_url=/?cancelado=1
-    // Lee STRIPE_SECRET_KEY y STRIPE_PRICE_PRO_ANUAL desde Lovable Cloud secrets.
-    void FEE_GESTION_WEB_PROPIA_EUR; // silencia "unused" hasta integración real
-    throw new Error("MOCK_MODE desactivado pero la integración real no está configurada.");
+    await markAltaPaid(data.alta_id, data.session_id);
+    return { ok: true, mock: false };
   });
 
 function capitalize(s: string) {

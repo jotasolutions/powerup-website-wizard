@@ -82,7 +82,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_alta: {
+        Args: {
+          p_restaurant_name: string
+          p_restaurant_address: string | null
+          p_gmb_place_id: string | null
+          p_has_existing_website: boolean
+          p_existing_website_url: string | null
+          p_wants_custom_domain: boolean
+          p_domain: string | null
+          p_domain_is_custom: boolean
+          p_onetime_fee_concept: Database["public"]["Enums"]["alta_fee_concept"] | null
+          p_onetime_fee_amount: number | null
+          p_contact_name: string
+          p_whatsapp: string
+        }
+        Returns: string
+      }
+      mark_alta_paid: {
+        Args: {
+          p_alta_id: string
+          p_stripe_session_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       alta_fee_concept: "gestion" | "dominio"

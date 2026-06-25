@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,9 +9,11 @@ import {
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   formatEUR,
 } from "@/lib/alta-config";
+import { finalizeCheckout } from "@/lib/alta.functions";
 
 const searchSchema = z.object({
   alta_id: z.string().optional(),
+  session_id: z.string().optional(),
 });
 
 export const Route = createFileRoute("/confirmacion")({
@@ -25,6 +29,22 @@ export const Route = createFileRoute("/confirmacion")({
 });
 
 function Confirmacion() {
+  const { alta_id, session_id } = Route.useSearch();
+  const finalizeCheckoutFn = useServerFn(finalizeCheckout);
+
+  useEffect(() => {
+    if (!alta_id || !session_id) return;
+
+    finalizeCheckoutFn({
+      data: {
+        alta_id,
+        session_id,
+      },
+    }).catch((error) => {
+      console.error("No se pudo finalizar el checkout:", error);
+    });
+  }, [alta_id, session_id, finalizeCheckoutFn]);
+
   return (
     <main className="container-narrow flex min-h-screen flex-col items-center justify-center py-10 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-gradient text-white shadow-brand">
