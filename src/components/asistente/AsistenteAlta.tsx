@@ -106,17 +106,9 @@ export function AsistenteAlta() {
             ) : (
               <div className="h-9 w-9" />
             )}
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white shadow-soft"
-                style={{ background: "var(--brand)" }}
-              >
-                P
-              </div>
-              <div className="leading-tight">
-                <div className="text-sm font-semibold">PowerUp Menu</div>
-                <div className="text-xs text-muted-foreground">Página Web</div>
-              </div>
+            <div className="leading-tight">
+              <div className="font-display text-sm font-medium">Página Web</div>
+              <div className="text-xs text-muted-foreground">Alta guiada</div>
             </div>
           </div>
           <div className="text-xs text-muted-foreground">
@@ -126,10 +118,9 @@ export function AsistenteAlta() {
         {/* Barra de progreso */}
         <div className="h-1 w-full bg-muted">
           <div
-            className="h-full transition-all duration-500 ease-out"
+            className="h-full bg-brand-gradient transition-all duration-500 ease-out"
             style={{
               width: `${(Math.min(stepIndex, TOTAL_STEPS) / TOTAL_STEPS) * 100}%`,
-              background: "var(--brand)",
             }}
           />
         </div>
@@ -465,7 +456,6 @@ function StepRestaurante({
           <Button
             onClick={() => mName.trim() && onManual(mName.trim(), mAddress.trim())}
             disabled={!mName.trim()}
-            style={{ background: "var(--brand)" }}
           >
             Continuar
           </Button>
@@ -531,7 +521,7 @@ function ChoiceRow({ options }: { options: { label: string; onClick: () => void 
         <button
           key={o.label}
           onClick={o.onClick}
-          className="rounded-full border border-border bg-card px-4 py-2 text-sm font-medium shadow-card transition hover:border-foreground/30 hover:bg-muted active:scale-[0.98]"
+          className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
         >
           {o.label}
         </button>
@@ -562,7 +552,7 @@ function StepUrl({ onSubmit }: { onSubmit: (url: string) => void }) {
         value={url}
         onChange={(e) => setUrl(e.target.value)}
       />
-      <Button type="submit" disabled={!valid} style={{ background: "var(--brand)" }}>
+      <Button type="submit" disabled={!valid}>
         Enviar
       </Button>
     </form>
@@ -616,7 +606,7 @@ function StepElegirDominio({
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
         />
-        <Button type="submit" disabled={!valid || loading} style={{ background: "var(--brand)" }}>
+        <Button type="submit" disabled={!valid || loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
         </Button>
       </form>
@@ -684,12 +674,7 @@ function ResumenCard({ alta, onContinue }: { alta: AltaState; onContinue: () => 
         </p>
       </div>
 
-      <Button
-        className="w-full"
-        size="lg"
-        onClick={onContinue}
-        style={{ background: "var(--brand)" }}
-      >
+      <Button className="w-full" size="lg" onClick={onContinue}>
         Continuar
       </Button>
     </div>
@@ -757,7 +742,7 @@ function StepContacto({
           onChange={(e) => setWa(e.target.value)}
         />
       </div>
-      <Button type="submit" disabled={!valid} className="w-full" size="lg" style={{ background: "var(--brand)" }}>
+      <Button type="submit" disabled={!valid} className="w-full" size="lg">
         <Check className="mr-1.5 h-4 w-4" /> Continuar al pago
       </Button>
       <p className="text-center text-[11px] text-muted-foreground">

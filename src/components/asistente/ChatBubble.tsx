@@ -9,10 +9,7 @@ export function ChatBubble({ role, children }: Props) {
   if (role === "user") {
     return (
       <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div
-          className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm font-medium shadow-sm"
-          style={{ background: "var(--brand)", color: "var(--brand-foreground)" }}
-        >
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-gradient px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-brand">
           {children}
         </div>
       </div>
@@ -22,8 +19,7 @@ export function ChatBubble({ role, children }: Props) {
   return (
     <div className="flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-soft"
-        style={{ background: "var(--brand)" }}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-sm font-bold text-primary-foreground shadow-brand"
         aria-hidden="true"
       >
         P
@@ -39,8 +35,7 @@ export function TypingBubble() {
   return (
     <div className="flex items-start gap-3">
       <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-soft"
-        style={{ background: "var(--brand)" }}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-sm font-bold text-primary-foreground shadow-brand"
         aria-hidden="true"
       >
         P

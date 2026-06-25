@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
 import { Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR,
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
@@ -26,13 +27,10 @@ export const Route = createFileRoute("/confirmacion")({
 function Confirmacion() {
   return (
     <main className="container-narrow flex min-h-screen flex-col items-center justify-center py-10 text-center">
-      <div
-        className="flex h-16 w-16 items-center justify-center rounded-full text-white shadow-soft"
-        style={{ background: "var(--brand)" }}
-      >
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-gradient text-white shadow-brand">
         <Check className="h-8 w-8" strokeWidth={3} />
       </div>
-      <h1 className="mt-6 text-2xl font-bold tracking-tight">¡Listo! Hemos recibido tu alta</h1>
+      <h1 className="mt-6 text-2xl font-medium tracking-tight">¡Listo! Hemos recibido tu alta</h1>
       <p className="mt-3 text-sm text-muted-foreground">
         En las próximas horas preparamos tu página web y, si elegiste dominio personalizado, lo
         registramos por ti. Te escribimos por WhatsApp para terminar la configuración.
@@ -50,13 +48,9 @@ function Confirmacion() {
         </p>
       </div>
 
-      <Link
-        to="/"
-        className="mt-8 inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium text-white shadow-soft transition hover:opacity-90"
-        style={{ background: "var(--brand)" }}
-      >
-        Volver al inicio
-      </Link>
+      <Button asChild className="mt-8 rounded-full px-5">
+        <Link to="/">Volver al inicio</Link>
+      </Button>
     </main>
   );
 }
