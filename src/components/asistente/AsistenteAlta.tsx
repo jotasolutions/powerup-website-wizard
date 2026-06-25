@@ -75,9 +75,52 @@ export function AsistenteAlta() {
 
   // Cuando entras en un paso por primera vez, el bot añade su mensaje al chat.
   useEffect(() => {
+    if (promptedStepsRef.current.has(step)) return;
+
+    if (step === "resumen") {
+      promptedStepsRef.current.add(step);
+      const snapshot = { ...alta };
+      const timeouts: ReturnType<typeof setTimeout>[] = [];
+
+      setBotTyping(true);
+      timeouts.push(
+        setTimeout(() => {
+          setMessages((m) => [
+            ...m,
+            {
+              id: uid(),
+              role: "bot",
+              kind: "text",
+              text: `Esto es lo que vamos a hacer para ${alta.restaurant_name}. Revísalo antes de seguir.`,
+            },
+          ]);
+          setBotTyping(true);
+          timeouts.push(
+            setTimeout(() => {
+              setMessages((m) => [
+                ...m,
+                { id: uid(), role: "bot", kind: "resumen-datos", alta: snapshot },
+              ]);
+              setBotTyping(true);
+              timeouts.push(
+                setTimeout(() => {
+                  setMessages((m) => [
+                    ...m,
+                    { id: uid(), role: "bot", kind: "resumen-desglose", alta: snapshot },
+                  ]);
+                  setBotTyping(false);
+                }, 450),
+              );
+            }, 450),
+          );
+        }, 450),
+      );
+
+      return () => timeouts.forEach(clearTimeout);
+    }
+
     const text = botPromptForStep(step, alta);
     if (!text) return;
-    if (promptedStepsRef.current.has(step)) return;
 
     promptedStepsRef.current.add(step);
     setBotTyping(true);
@@ -166,9 +209,7 @@ export function AsistenteAlta() {
         className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
       >
         {messages.map((m) => (
-          <ChatBubble key={m.id} role={m.role}>
-            {m.text}
-          </ChatBubble>
+          <ChatMessage key={m.id} message={m} />
         ))}
         {botTyping && <TypingBubble />}
         <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
@@ -308,10 +349,9 @@ export function AsistenteAlta() {
           )}
 
           {step === "resumen" && (
-            <ResumenCard
-              alta={alta}
-              onContinue={() => go("contacto")}
-            />
+            <Button className="w-full" size="lg" onClick={() => go("contacto")}>
+              Continuar
+            </Button>
           )}
 
           {step === "contacto" && (
@@ -456,7 +496,7 @@ function botPromptForStep(s: StepId, a: AltaState): string | null {
     case "elegirDominio":
       return "Perfecto. ¿Qué dominio te gustaría usar? Escríbelo sin “www” (por ejemplo: turestaurante.es).";
     case "resumen":
-      return `Esto es lo que vamos a hacer para ${a.restaurant_name}. Revísalo antes de seguir.`;
+      return null;
     case "contacto":
       return "Último paso antes del pago: déjame tu nombre y tu WhatsApp para contactarte.";
     case "enviando":
@@ -647,6 +687,16 @@ function StepUrl({ onSubmit }: { onSubmit: (url: string) => void }) {
 
 // ─── Paso elegir dominio ────────────────────────────────────────────────────
 
+function NamecheapBadge() {
+  return (
+    <img
+      src="/images/namecheaplogo.svg"
+      alt="Namecheap"
+      className="h-4 w-auto shrink-0 opacity-90"
+    />
+  );
+}
+
 function StepElegirDominio({
   onAvailable,
   onSkip,
@@ -654,11 +704,19 @@ function StepElegirDominio({
 }: {
   onAvailable: (domain: string, price: number) => void;
   onSkip: () => void;
-  checkDomainFn: (args: { data: { domain: string } }) => Promise<{ available: boolean; price: number }>;
+  checkDomainFn: (args: { data: { domain: string } }) => Promise<
+    | { available: true; price: number }
+    | { available: false; alternatives: Array<{ domain: string; price: number }> }
+  >;
 }) {
   const [domain, setDomain] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unavailableDomain, setUnavailableDomain] = useState<string | null>(null);
+  const [alternatives, setAlternatives] = useState<Array<{ domain: string; price: number }>>([]);
+  const [availableResult, setAvailableResult] = useState<{ domain: string; price: number } | null>(
+    null,
+  );
 
   const norm = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   const valid = /^[a-z0-9-]+(\.[a-z]{2,})+$/.test(norm);
@@ -668,12 +726,19 @@ function StepElegirDominio({
     if (!valid) return;
     setLoading(true);
     setError(null);
+    setUnavailableDomain(null);
+    setAlternatives([]);
+    setAvailableResult(null);
     try {
       const r = await checkDomainFn({ data: { domain: norm } });
       if (r.available) {
-        onAvailable(norm, r.price);
+        setAvailableResult({ domain: norm, price: r.price });
       } else {
-        setError(`“${norm}” no está disponible. Prueba con otro.`);
+        setUnavailableDomain(norm);
+        setAlternatives(r.alternatives.slice(0, 3));
+        if (r.alternatives.length === 0) {
+          setError(`“${norm}” no está disponible y no hemos encontrado alternativas ahora mismo.`);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -701,6 +766,54 @@ function StepElegirDominio({
           <X className="h-3.5 w-3.5" /> {error}
         </div>
       )}
+      {availableResult && (
+        <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-emerald-900">
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              “{availableResult.domain}” está disponible por {formatEUR(availableResult.price)}
+            </div>
+            <NamecheapBadge />
+          </div>
+          <Button
+            type="button"
+            className="w-full"
+            onClick={() => onAvailable(availableResult.domain, availableResult.price)}
+          >
+            Usar este dominio
+          </Button>
+        </div>
+      )}
+      {unavailableDomain && !error && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <div className="flex items-center gap-2">
+            <X className="h-3.5 w-3.5 shrink-0" />
+            “{unavailableDomain}” no está disponible.
+          </div>
+          <NamecheapBadge />
+        </div>
+      )}
+      {alternatives.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div className="text-xs font-medium text-foreground">Alternativas disponibles</div>
+          <div className="space-y-2">
+            {alternatives.map((alt) => (
+              <button
+                key={alt.domain}
+                type="button"
+                onClick={() => onAvailable(alt.domain, alt.price)}
+                className="flex w-full items-center justify-between rounded-md border border-border bg-white px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-primary/5"
+              >
+                <span>{alt.domain}</span>
+                <span className="inline-flex items-center gap-1 font-medium">
+                  {formatEUR(alt.price)}
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <button
         type="button"
         onClick={onSkip}
@@ -712,54 +825,76 @@ function StepElegirDominio({
   );
 }
 
+// ─── Mensajes del chat ──────────────────────────────────────────────────────
+
+function ChatMessage({ message }: { message: ChatMessage }) {
+  if (message.role === "user") {
+    return <ChatBubble role="user">{message.text}</ChatBubble>;
+  }
+
+  switch (message.kind) {
+    case "text":
+      return <ChatBubble role="bot">{message.text}</ChatBubble>;
+    case "resumen-datos":
+      return (
+        <ChatBubble role="bot">
+          <ResumenDatos alta={message.alta} />
+        </ChatBubble>
+      );
+    case "resumen-desglose":
+      return (
+        <ChatBubble role="bot">
+          <ResumenDesglose alta={message.alta} />
+        </ChatBubble>
+      );
+  }
+}
+
 // ─── Resumen ────────────────────────────────────────────────────────────────
 
-function ResumenCard({ alta, onContinue }: { alta: AltaState; onContinue: () => void }) {
-  const hoy = alta.has_existing_website
+function resumenHoy(alta: AltaState) {
+  return alta.has_existing_website
     ? { label: "Fee de gestión", amount: FEE_GESTION_WEB_PROPIA_EUR }
     : alta.domain_is_custom
       ? { label: `Dominio ${alta.domain}`, amount: alta.domain_price ?? 0 }
       : { label: "Hoy no pagas nada", amount: 0 };
+}
+
+function ResumenDatos({ alta }: { alta: AltaState }) {
+  return (
+    <div className="space-y-2.5">
+      <Row label="Restaurante" value={alta.restaurant_name} />
+      {alta.has_existing_website ? (
+        <Row label="Web actual" value={alta.existing_website_url} link />
+      ) : alta.domain_is_custom ? (
+        <Row label="Dominio" value={`${alta.domain} · ${formatEUR(alta.domain_price ?? 0)}`} />
+      ) : (
+        <Row label="Dirección web" value={alta.domain} />
+      )}
+    </div>
+  );
+}
+
+function ResumenDesglose({ alta }: { alta: AltaState }) {
+  const hoy = resumenHoy(alta);
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-2xl border bg-card p-4 shadow-card">
-        <div className="space-y-2.5 text-sm">
-          <Row label="Restaurante" value={alta.restaurant_name} />
-          {alta.has_existing_website ? (
-            <Row label="Web actual" value={alta.existing_website_url} link />
-          ) : alta.domain_is_custom ? (
-            <Row
-              label="Dominio"
-              value={`${alta.domain} · ${formatEUR(alta.domain_price ?? 0)}`}
-            />
-          ) : (
-            <Row label="Dirección web" value={alta.domain} />
-          )}
-        </div>
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Desglose
       </div>
-
-      <div className="rounded-2xl border bg-card p-4 shadow-card">
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Desglose
-        </div>
-        <div className="mt-2 flex items-baseline justify-between text-sm">
-          <span>Hoy · {hoy.label}</span>
-          <span className="font-semibold">{formatEUR(hoy.amount)}</span>
-        </div>
-        <div className="mt-1 flex items-baseline justify-between text-sm text-muted-foreground">
-          <span>Tras {PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba · Plan Pro Anual</span>
-          <span>{formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año</span>
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          El plan Pro Anual incluye tu página web. Capturamos el método de pago hoy y se cobra
-          automáticamente al terminar el mes de prueba.
-        </p>
+      <div className="mt-2 flex items-baseline justify-between text-sm">
+        <span>Hoy · {hoy.label}</span>
+        <span className="font-semibold">{formatEUR(hoy.amount)}</span>
       </div>
-
-      <Button className="w-full" size="lg" onClick={onContinue}>
-        Continuar
-      </Button>
+      <div className="mt-1 flex items-baseline justify-between text-sm text-muted-foreground">
+        <span>Tras {PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba · Plan Pro Anual</span>
+        <span>{formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año</span>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        El plan Pro Anual incluye tu página web. Capturamos el método de pago hoy y se cobra
+        automáticamente al terminar el mes de prueba.
+      </p>
     </div>
   );
 }

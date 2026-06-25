@@ -1,8 +1,7 @@
 // Configuración del flujo de alta. Importes/precios configurables.
 // Búsqueda de restaurantes: Google Places API (ver env.server.ts).
-// Dominios personalizados: mock hasta integrar un registrador (Namecheap, Porkbun, etc.).
-
-export const MOCK_DOMAIN_CHECK = true;
+// Dominios personalizados: Namecheap (ver env.server.ts → shouldMockDomainCheck).
+export const DOMAIN_PRICE_MARGIN_PERCENT = 20;
 
 // Importe de referencia del plan Pro Anual (incluye Página Web). No codificar
 // importes finales en Stripe: el Stripe Price ID será un secreto cuando se integre real.

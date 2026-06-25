@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { MOCK_DOMAIN_CHECK, FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
+import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
@@ -8,8 +8,14 @@ import {
 } from "./stripe.server";
 import { getAppOrigin } from "./app-env.server";
 import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
-import { hasEvolutionConfig, hasGooglePlaces } from "./env.server";
+import {
+  hasEvolutionConfig,
+  hasGooglePlaces,
+  hasNamecheapConfig,
+  shouldMockDomainCheck,
+} from "./env.server";
 import { searchRestaurants } from "./google-places.server";
+import { checkDomainWithNamecheap } from "./namecheap.server";
 import WhatsappRepository from "@/server/repositories/WhatsappRepository";
 
 function normalizeWhatsapp(phone: string): string {
@@ -59,17 +65,32 @@ export const gmbSearch = createServerFn({ method: "POST" })
 export const checkDomain = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ domain: z.string().min(3) }).parse(input))
   .handler(async ({ data }) => {
-    if (MOCK_DOMAIN_CHECK) {
+    const domain = data.domain.toLowerCase().trim();
+
+    if (shouldMockDomainCheck()) {
       await new Promise((r) => setTimeout(r, 500));
-      const domain = data.domain.toLowerCase().trim();
       if (domain.includes("test")) {
-        return { available: false, price: 0 };
+        const [sld = "turestaurante", tld = "es"] = domain.split(".");
+        return {
+          available: false as const,
+          alternatives: [
+            { domain: `${sld}.com`, price: 17.9 },
+            { domain: `${sld}.menu`, price: 21.9 },
+            { domain: `${sld}-restaurante.${tld}`, price: 16.9 },
+          ],
+        };
       }
       const price = Math.round((12 + Math.random() * 28) * 100) / 100;
       return { available: true, price };
     }
 
-    throw new Error("MOCK_DOMAIN_CHECK desactivado pero el registrador de dominios no está configurado.");
+    if (!hasNamecheapConfig()) {
+      throw new Error(
+        "Falta configuración de Namecheap. Define NAMECHEAP_API_USER, NAMECHEAP_API_KEY y NAMECHEAP_CLIENT_IP.",
+      );
+    }
+
+    return checkDomainWithNamecheap(domain);
   });
 
 // ─────────────────────────────────────────────────────────────────────────────

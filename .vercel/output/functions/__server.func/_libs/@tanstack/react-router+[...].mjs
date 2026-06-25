@@ -4213,7 +4213,7 @@ var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 }));
 //#endregion
 //#region node_modules/@tanstack/react-router/dist/esm/link.js
-var import_react_dom = require_react_dom();
+var import_react_dom = /* @__PURE__ */ __toESM(require_react_dom(), 1);
 /**
 * Build anchor-like props for declarative navigation and preloading.
 *
@@ -14644,4 +14644,4 @@ var renderRouterToStream = async ({ request, router, responseHeaders, children }
 	throw new Error("No renderToReadableStream or renderToPipeableStream found in react-dom/server. Ensure you are using a version of react-dom that supports streaming.");
 };
 //#endregion
-export { rootRouteId as A, getStylesheetHref as C, isRedirect as D, executeRewriteInput as E, createLRUCache as M, invariant as N, isResolvedRedirect as O, decodePath as P, getScriptPreloadAttrs as S, resolveManifestCssLink as T, useRouter as _, replaceSsrResponse as a, createInlineCssPlaceholderAsset as b, HeadContent as c, Outlet as d, lazyRouteComponent as f, useNavigate as g, Link as h, normalizeSsrResponse as i, isNotFound as j, parseRedirect as k, RouterProvider as l, createRootRouteWithContext as m, defineHandlerCallback as n, stripSsrResponseBody as o, createFileRoute as p, isSsrResponse as r, Scripts as s, renderRouterToStream as t, createRouter as u, GLOBAL_TSR as v, resolveManifestAssetLink as w, createInlineCssStyleAsset as x, TSR_SCRIPT_BARRIER_ID as y };
+export { parseRedirect as A, getScriptPreloadAttrs as C, executeRewriteInput as D, resolveManifestCssLink as E, decodePath as F, isNotFound as M, createLRUCache as N, isRedirect as O, invariant as P, createInlineCssStyleAsset as S, resolveManifestAssetLink as T, useNavigate as _, replaceSsrResponse as a, TSR_SCRIPT_BARRIER_ID as b, HeadContent as c, Outlet as d, lazyRouteComponent as f, require_react_dom as g, Link as h, normalizeSsrResponse as i, rootRouteId as j, isResolvedRedirect as k, RouterProvider as l, createRootRouteWithContext as m, defineHandlerCallback as n, stripSsrResponseBody as o, createFileRoute as p, isSsrResponse as r, Scripts as s, renderRouterToStream as t, createRouter as u, useRouter as v, getStylesheetHref as w, createInlineCssPlaceholderAsset as x, GLOBAL_TSR as y };

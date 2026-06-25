@@ -113,3 +113,49 @@ export function hasEvolutionConfig(): boolean {
     return false;
   }
 }
+
+export function getNamecheapApiUser(): string | undefined {
+  return firstEnv("NAMECHEAP_API_USER", "NAMECHEAP_APIUSERNAME");
+}
+
+export function getNamecheapApiKey(): string | undefined {
+  return firstEnv("NAMECHEAP_API_KEY");
+}
+
+export function getNamecheapClientIp(): string | undefined {
+  return firstEnv("NAMECHEAP_CLIENT_IP");
+}
+
+export function hasNamecheapConfig(): boolean {
+  return Boolean(getNamecheapApiUser() && getNamecheapApiKey() && getNamecheapClientIp());
+}
+
+export function isNamecheapSandbox(): boolean {
+  const raw = firstEnv("NAMECHEAP_SANDBOX");
+  if (!raw) return false;
+  return raw.toLowerCase() === "true" || raw === "1";
+}
+
+export function getNamecheapDomainMarginPercent(): number | undefined {
+  const raw = firstEnv("NAMECHEAP_DOMAIN_MARGIN_PERCENT");
+  if (!raw) return undefined;
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function getNamecheapUsdToEurRate(): number | undefined {
+  const raw = firstEnv("NAMECHEAP_USD_TO_EUR");
+  if (!raw) return undefined;
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** Usa mock solo si MOCK_DOMAIN_CHECK=true o si faltan credenciales de Namecheap. */
+export function shouldMockDomainCheck(): boolean {
+  const raw = firstEnv("MOCK_DOMAIN_CHECK");
+  if (raw?.toLowerCase() === "false" || raw === "0") return false;
+  if (raw?.toLowerCase() === "true" || raw === "1") return true;
+  return !hasNamecheapConfig();
+}
