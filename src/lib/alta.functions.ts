@@ -1,12 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { MOCK_MODE, FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
-import { insertAlta, markAltaPaid } from "./supabase-server";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
   verifyCheckoutSession,
 } from "./stripe.server";
+import { getAppOrigin } from "./supabase-env.server";
+import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // gmb-search: busca restaurantes en Google Business Profile / Places.
@@ -69,7 +70,7 @@ export const checkDomain = createServerFn({ method: "POST" })
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// create-checkout: persiste el alta y abre Stripe Checkout.
+// save-alta: persiste el alta en Neon antes de abrir Stripe Checkout.
 // ─────────────────────────────────────────────────────────────────────────────
 const AltaInput = z.object({
   restaurant_name: z.string().min(1),
@@ -86,16 +87,7 @@ const AltaInput = z.object({
   whatsapp: z.string().min(3),
 });
 
-function getRequestOrigin(): string {
-  return (
-    process.env.APP_URL ??
-    process.env.PUBLIC_URL ??
-    process.env.VITE_APP_URL ??
-    "http://localhost:8081"
-  );
-}
-
-export const createCheckout = createServerFn({ method: "POST" })
+export const saveAlta = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => AltaInput.parse(input))
   .handler(async ({ data }) => {
     const altaId = await insertAlta({
@@ -113,27 +105,50 @@ export const createCheckout = createServerFn({ method: "POST" })
       whatsapp: data.whatsapp,
     });
 
+    return { alta_id: altaId, saved: true as const };
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// create-checkout: abre Stripe Checkout para un alta ya guardada en la BBDD.
+// ─────────────────────────────────────────────────────────────────────────────
+export const createCheckout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ alta_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }) => {
+    const alta = await getAltaById(data.alta_id);
+    if (!alta) {
+      throw new Error("No encontramos tu solicitud. Vuelve a intentarlo.");
+    }
+
+    if (alta.status !== "pending_payment") {
+      throw new Error("Esta solicitud ya fue procesada.");
+    }
+
     const useStripe = hasStripeCheckout();
 
     if (!useStripe) {
-      await markAltaPaid(altaId, `mock_${altaId}`);
+      await markAltaPaid(data.alta_id, `mock_${data.alta_id}`);
       void FEE_GESTION_WEB_PROPIA_EUR;
-      return { alta_id: altaId, checkout_url: null as string | null, mock: true };
+      return { alta_id: data.alta_id, checkout_url: null as string | null, mock: true };
     }
 
+    const onetimeFeeAmount =
+      alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
+
     const session = await createAltaCheckoutSession({
-      altaId,
-      origin: getRequestOrigin(),
-      restaurantName: data.restaurant_name,
-      onetimeFeeConcept: data.onetime_fee_concept,
-      onetimeFeeAmount: data.onetime_fee_amount,
+      altaId: data.alta_id,
+      origin: getAppOrigin(),
+      restaurantName: alta.restaurantName,
+      onetimeFeeConcept: alta.onetimeFeeConcept,
+      onetimeFeeAmount,
     });
 
     if (!session.url) {
       throw new Error("Stripe no devolvió una URL de checkout.");
     }
 
-    return { alta_id: altaId, checkout_url: session.url, mock: false };
+    return { alta_id: data.alta_id, checkout_url: session.url, mock: false };
   });
 
 export const finalizeCheckout = createServerFn({ method: "POST" })
