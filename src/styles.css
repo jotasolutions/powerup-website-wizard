@@ -112,7 +112,15 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  @media (max-width: 768px) {
+    html,
+    body {
+      background-attachment: scroll;
+    }
   }
 
   h1,
@@ -130,6 +138,14 @@
   max-width: 42rem;
   margin-inline: auto;
   padding-inline: 1rem;
+}
+
+@utility safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @utility shadow-soft {

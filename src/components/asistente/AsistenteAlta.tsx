@@ -3,17 +3,24 @@ import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, ArrowLeft, Check, X } from "lucide-react";
+import { Loader2, Search, ArrowLeft, Check, X, MessageCircle } from "lucide-react";
 import { ChatBubble, TypingBubble } from "./ChatBubble";
+import { ResumenPedido } from "./ResumenPedido";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
 import {
   formatEUR,
   generarSubdominio,
-  PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR,
-  PLAN_PRO_ANUAL_DIAS_PRUEBA,
   FEE_GESTION_WEB_PROPIA_EUR,
 } from "@/lib/alta-config";
-import { gmbSearch, checkDomain, startCheckout, validateWhatsapp } from "@/lib/alta.functions";
+import {
+  clearAltaDraft,
+  getCheckoutScenario,
+  getContactoCta,
+  getResumenCta,
+  loadAltaDraft,
+  saveAltaDraft,
+} from "@/lib/checkout-scenario";
+import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } from "@/lib/alta.functions";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
 import { toast } from "sonner";
 
@@ -27,7 +34,7 @@ type StepId =
   | "contacto"
   | "enviando";
 
-type CheckoutPhase = "saving" | "checkout";
+type CheckoutPhase = "lead" | "checkout";
 
 const TOTAL_STEPS = 6; // restaurante, web, dominio, resumen, contacto, pago
 
@@ -40,7 +47,35 @@ function checkoutErrorMessage(error: unknown): string {
   return `Ha habido un problema al continuar al pago: ${detail}`;
 }
 
-export function AsistenteAlta() {
+function buildAltaPayload(alta: AltaState, contact_name: string, whatsapp: string) {
+  const concept = alta.has_existing_website
+    ? ("gestion" as const)
+    : alta.domain_is_custom
+      ? ("dominio" as const)
+      : null;
+  const amount = alta.has_existing_website
+    ? FEE_GESTION_WEB_PROPIA_EUR
+    : alta.domain_is_custom
+      ? (alta.domain_price ?? 0)
+      : null;
+
+  return {
+    restaurant_name: alta.restaurant_name,
+    restaurant_address: alta.restaurant_address || null,
+    gmb_place_id: alta.gmb_place_id,
+    has_existing_website: !!alta.has_existing_website,
+    existing_website_url: alta.has_existing_website ? alta.existing_website_url : null,
+    wants_custom_domain: !!alta.wants_custom_domain,
+    domain: alta.domain || generarSubdominio(alta.restaurant_name),
+    domain_is_custom: alta.domain_is_custom,
+    onetime_fee_concept: concept,
+    onetime_fee_amount: amount,
+    contact_name,
+    whatsapp,
+  };
+}
+
+export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel?: boolean }) {
   const navigate = useNavigate();
   const [alta, setAlta] = useState<AltaState>(initialAlta);
   const [step, setStep] = useState<StepId>("restaurante");
@@ -54,7 +89,8 @@ export function AsistenteAlta() {
     },
   ]);
   const [botTyping, setBotTyping] = useState(false);
-  const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("saving");
+  const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("lead");
+  const [pendingAltaId, setPendingAltaId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -70,8 +106,45 @@ export function AsistenteAlta() {
 
   const gmbSearchFn = useServerFn(gmbSearch);
   const checkDomainFn = useServerFn(checkDomain);
-  const startCheckoutFn = useServerFn(startCheckout);
+  const saveAltaFn = useServerFn(saveAlta);
+  const createCheckoutFn = useServerFn(createCheckout);
   const validateWhatsappFn = useServerFn(validateWhatsapp);
+  const checkoutScenario = getCheckoutScenario(alta);
+
+  useEffect(() => {
+    if (!recoverFromCancel) return;
+
+    navigate({ to: "/", search: {}, replace: true });
+
+    const draft = loadAltaDraft();
+    if (draft?.alta.restaurant_name) {
+      setAlta(draft.alta);
+      if (draft.alta_id) setPendingAltaId(draft.alta_id);
+      promptedStepsRef.current.add("resumen");
+      promptedStepsRef.current.add("contacto");
+      setStep("contacto");
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          role: "bot",
+          kind: "text",
+          text: "Has cerrado el pago sin terminar. Ya tenemos tu WhatsApp guardado — puedes continuar con el pago cuando quieras.",
+        },
+        {
+          id: uid(),
+          role: "bot",
+          kind: "resumen-pedido",
+          alta: draft.alta,
+        },
+      ]);
+    } else {
+      toast.message("Pago cancelado", {
+        description: "Si quieres retomar el alta, vuelve a completar los pasos.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recoverFromCancel]);
 
   // Cuando entras en un paso por primera vez, el bot añade su mensaje al chat.
   useEffect(() => {
@@ -80,43 +153,28 @@ export function AsistenteAlta() {
     if (step === "resumen") {
       promptedStepsRef.current.add(step);
       const snapshot = { ...alta };
-      const timeouts: ReturnType<typeof setTimeout>[] = [];
 
       setBotTyping(true);
-      timeouts.push(
-        setTimeout(() => {
-          setMessages((m) => [
-            ...m,
-            {
-              id: uid(),
-              role: "bot",
-              kind: "text",
-              text: `Esto es lo que vamos a hacer para ${alta.restaurant_name}. Revísalo antes de seguir.`,
-            },
-          ]);
-          setBotTyping(true);
-          timeouts.push(
-            setTimeout(() => {
-              setMessages((m) => [
-                ...m,
-                { id: uid(), role: "bot", kind: "resumen-datos", alta: snapshot },
-              ]);
-              setBotTyping(true);
-              timeouts.push(
-                setTimeout(() => {
-                  setMessages((m) => [
-                    ...m,
-                    { id: uid(), role: "bot", kind: "resumen-desglose", alta: snapshot },
-                  ]);
-                  setBotTyping(false);
-                }, 450),
-              );
-            }, 450),
-          );
-        }, 450),
-      );
+      const t = setTimeout(() => {
+        setMessages((m) => [
+          ...m,
+          {
+            id: uid(),
+            role: "bot",
+            kind: "text",
+            text: `Esto es lo que vamos a hacer para ${alta.restaurant_name}. Revísalo antes de seguir.`,
+          },
+          {
+            id: uid(),
+            role: "bot",
+            kind: "resumen-pedido",
+            alta: snapshot,
+          },
+        ]);
+        setBotTyping(false);
+      }, 450);
 
-      return () => timeouts.forEach(clearTimeout);
+      return () => clearTimeout(t);
     }
 
     const text = botPromptForStep(step, alta);
@@ -169,19 +227,19 @@ export function AsistenteAlta() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       {/* Header */}
-      <header className="z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
+      <header className="safe-area-top z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
         <div className="container-narrow flex items-center justify-between py-3">
           <div className="flex items-center gap-2">
             {history.length > 0 && step !== "enviando" ? (
               <button
                 onClick={back}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
                 aria-label="Volver"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
             ) : (
-              <div className="h-9 w-9" />
+              <div className="h-11 w-11" />
             )}
             <div className="leading-tight">
               <div className="font-display text-sm font-medium">Página Web</div>
@@ -218,7 +276,7 @@ export function AsistenteAlta() {
       {/* Zona de input según el paso */}
       <footer
         ref={footerRef}
-        className="shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
+        className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
       >
         <div className="container-narrow py-4">
           {step === "restaurante" && (
@@ -350,67 +408,49 @@ export function AsistenteAlta() {
 
           {step === "resumen" && (
             <Button className="w-full" size="lg" onClick={() => go("contacto")}>
-              Continuar
+              {getResumenCta(checkoutScenario)}
             </Button>
           )}
 
           {step === "contacto" && (
             <StepContacto
               alta={alta}
+              submitCta={getContactoCta(checkoutScenario)}
               onSubmit={async (contact_name, whatsapp) => {
-                try {
-                  await validateWhatsappFn({ data: { phone: whatsapp } });
-                } catch (e) {
-                  const message =
-                    e instanceof Error && e.message === "invalid_whatsapp_number"
-                      ? "El número ingresado no es un número válido de WhatsApp."
-                      : e instanceof Error
-                        ? e.message
-                        : "No se pudo validar el número de WhatsApp.";
-                  toast.error(message);
-                  return;
-                }
+                void validateWhatsappFn({ data: { phone: whatsapp } }).catch(() => {
+                  toast.warning(
+                    "No pudimos verificar el WhatsApp ahora. Lo revisaremos al contactarte.",
+                  );
+                });
 
                 pushUser(`${contact_name} · ${whatsapp}`);
-                setAlta((a) => ({ ...a, contact_name, whatsapp }));
-                setCheckoutPhase("saving");
+                const altaActualizada = { ...alta, contact_name, whatsapp };
+                setAlta(altaActualizada);
+                setCheckoutPhase("lead");
                 setStep("enviando");
+
+                let altaId = pendingAltaId;
+
                 try {
-                  const concept = alta.has_existing_website
-                    ? ("gestion" as const)
-                    : alta.domain_is_custom
-                      ? ("dominio" as const)
-                      : null;
-                  const amount = alta.has_existing_website
-                    ? FEE_GESTION_WEB_PROPIA_EUR
-                    : alta.domain_is_custom
-                      ? (alta.domain_price ?? 0)
-                      : null;
+                  const altaPayload = buildAltaPayload(alta, contact_name, whatsapp);
 
-                  const altaPayload = {
-                    restaurant_name: alta.restaurant_name,
-                    restaurant_address: alta.restaurant_address || null,
-                    gmb_place_id: alta.gmb_place_id,
-                    has_existing_website: !!alta.has_existing_website,
-                    existing_website_url: alta.has_existing_website
-                      ? alta.existing_website_url
-                      : null,
-                    wants_custom_domain: !!alta.wants_custom_domain,
-                    domain: alta.domain || generarSubdominio(alta.restaurant_name),
-                    domain_is_custom: alta.domain_is_custom,
-                    onetime_fee_concept: concept,
-                    onetime_fee_amount: amount,
-                    contact_name,
-                    whatsapp,
-                    origin: window.location.origin,
-                  };
+                  if (!altaId) {
+                    const saved = await saveAltaFn({ data: altaPayload });
+                    altaId = saved.alta_id;
+                    setPendingAltaId(altaId);
+                  }
 
-                  const checkoutPhaseTimer = window.setTimeout(() => {
-                    setCheckoutPhase("checkout");
-                  }, 500);
+                  saveAltaDraft({
+                    alta: altaActualizada,
+                    step: "contacto",
+                    alta_id: altaId,
+                  });
 
-                  const result = await startCheckoutFn({ data: altaPayload });
-                  window.clearTimeout(checkoutPhaseTimer);
+                  setCheckoutPhase("checkout");
+
+                  const result = await createCheckoutFn({
+                    data: { alta_id: altaId, origin: window.location.origin },
+                  });
 
                   if (result.checkout_url) {
                     const mode = redirectToCheckout(result.checkout_url);
@@ -428,18 +468,22 @@ export function AsistenteAlta() {
                       setStep("contacto");
                     }
                   } else {
+                    clearAltaDraft();
                     navigate({ to: "/confirmacion", search: { alta_id: result.alta_id } });
                   }
                 } catch (e) {
                   console.error(e);
                   setBotTyping(false);
+                  const leadSaved = altaId != null;
                   setMessages((m) => [
                     ...m,
                     {
                       id: uid(),
                       role: "bot",
                       kind: "text",
-                      text: checkoutErrorMessage(e),
+                      text: leadSaved
+                        ? `Tu contacto ya está guardado. ${checkoutErrorMessage(e)}`
+                        : checkoutErrorMessage(e),
                     },
                   ]);
                   setStep("contacto");
@@ -451,8 +495,8 @@ export function AsistenteAlta() {
           {step === "enviando" && (
             <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              {checkoutPhase === "saving"
-                ? "Guardando tus datos…"
+              {checkoutPhase === "lead"
+                ? "Guardando tu contacto…"
                 : "Preparando tu pago seguro…"}
             </div>
           )}
@@ -498,7 +542,7 @@ function botPromptForStep(s: StepId, a: AltaState): string | null {
     case "resumen":
       return null;
     case "contacto":
-      return "Último paso antes del pago: déjame tu nombre y tu WhatsApp para contactarte.";
+      return "Déjame tu nombre y tu WhatsApp: solo te escribimos para avisarte del estado de tu web y ayudarte si lo necesitas.";
     case "enviando":
       return null;
   }
@@ -617,10 +661,10 @@ function StepRestaurante({
               <button
                 type="button"
                 onClick={() => onPick(r)}
-                className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-2.5 text-left transition last:border-0 hover:bg-muted"
+                className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
               >
                 <span className="text-sm font-medium">{r.name}</span>
-                <span className="text-xs text-muted-foreground">{r.address}</span>
+                <span className="min-w-0 break-words text-xs text-muted-foreground">{r.address}</span>
               </button>
             </li>
           ))}
@@ -647,7 +691,7 @@ function ChoiceRow({ options }: { options: { label: string; onClick: () => void 
         <button
           key={o.label}
           onClick={o.onClick}
-          className="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
+          className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
         >
           {o.label}
         </button>
@@ -670,15 +714,16 @@ function StepUrl({ onSubmit }: { onSubmit: (url: string) => void }) {
         if (!/^https?:\/\//.test(v)) v = `https://${v}`;
         onSubmit(v);
       }}
-      className="flex gap-2"
+      className="flex flex-col gap-2 sm:flex-row sm:items-center"
     >
       <Input
         autoFocus
         placeholder="https://turestaurante.com"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
+        className="min-w-0 flex-1"
       />
-      <Button type="submit" disabled={!valid}>
+      <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
         Enviar
       </Button>
     </form>
@@ -750,14 +795,15 @@ function StepElegirDominio({
 
   return (
     <div className="space-y-3">
-      <form onSubmit={submit} className="flex gap-2">
+      <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Input
           autoFocus
           placeholder="turestaurante.es"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
+          className="min-w-0 flex-1"
         />
-        <Button type="submit" disabled={!valid || loading}>
+        <Button type="submit" disabled={!valid || loading} className="h-11 w-full shrink-0 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
         </Button>
       </form>
@@ -768,10 +814,12 @@ function StepElegirDominio({
       )}
       {availableResult && (
         <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs text-emerald-900">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-emerald-900">
               <Check className="h-3.5 w-3.5 shrink-0" />
-              “{availableResult.domain}” está disponible por {formatEUR(availableResult.price)}
+              <span className="min-w-0 break-words">
+                “{availableResult.domain}” está disponible por {formatEUR(availableResult.price)}
+              </span>
             </div>
             <NamecheapBadge />
           </div>
@@ -785,10 +833,10 @@ function StepElegirDominio({
         </div>
       )}
       {unavailableDomain && !error && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
             <X className="h-3.5 w-3.5 shrink-0" />
-            “{unavailableDomain}” no está disponible.
+            <span className="min-w-0 break-words">“{unavailableDomain}” no está disponible.</span>
           </div>
           <NamecheapBadge />
         </div>
@@ -802,9 +850,9 @@ function StepElegirDominio({
                 key={alt.domain}
                 type="button"
                 onClick={() => onAvailable(alt.domain, alt.price)}
-                className="flex w-full items-center justify-between rounded-md border border-border bg-white px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-primary/5"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-white px-3 py-3 text-left text-sm transition hover:border-primary/40 hover:bg-primary/5"
               >
-                <span>{alt.domain}</span>
+                <span className="min-w-0 break-words">{alt.domain}</span>
                 <span className="inline-flex items-center gap-1 font-medium">
                   {formatEUR(alt.price)}
                   <Check className="h-3.5 w-3.5" />
@@ -835,103 +883,29 @@ function ChatMessage({ message }: { message: ChatMessage }) {
   switch (message.kind) {
     case "text":
       return <ChatBubble role="bot">{message.text}</ChatBubble>;
-    case "resumen-datos":
+    case "resumen-pedido":
       return (
         <ChatBubble role="bot">
-          <ResumenDatos alta={message.alta} />
-        </ChatBubble>
-      );
-    case "resumen-desglose":
-      return (
-        <ChatBubble role="bot">
-          <ResumenDesglose alta={message.alta} />
+          <ResumenPedido alta={message.alta} />
         </ChatBubble>
       );
   }
-}
-
-// ─── Resumen ────────────────────────────────────────────────────────────────
-
-function resumenHoy(alta: AltaState) {
-  return alta.has_existing_website
-    ? { label: "Fee de gestión", amount: FEE_GESTION_WEB_PROPIA_EUR }
-    : alta.domain_is_custom
-      ? { label: `Dominio ${alta.domain}`, amount: alta.domain_price ?? 0 }
-      : { label: "Hoy no pagas nada", amount: 0 };
-}
-
-function ResumenDatos({ alta }: { alta: AltaState }) {
-  return (
-    <div className="space-y-2.5">
-      <Row label="Restaurante" value={alta.restaurant_name} />
-      {alta.has_existing_website ? (
-        <Row label="Web actual" value={alta.existing_website_url} link />
-      ) : alta.domain_is_custom ? (
-        <Row label="Dominio" value={`${alta.domain} · ${formatEUR(alta.domain_price ?? 0)}`} />
-      ) : (
-        <Row label="Dirección web" value={alta.domain} />
-      )}
-    </div>
-  );
-}
-
-function ResumenDesglose({ alta }: { alta: AltaState }) {
-  const hoy = resumenHoy(alta);
-
-  return (
-    <div>
-      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Desglose
-      </div>
-      <div className="mt-2 flex items-baseline justify-between text-sm">
-        <span>Hoy · {hoy.label}</span>
-        <span className="font-semibold">{formatEUR(hoy.amount)}</span>
-      </div>
-      <div className="mt-1 flex items-baseline justify-between text-sm text-muted-foreground">
-        <span>Tras {PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba · Plan Pro Anual</span>
-        <span>{formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año</span>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        El plan Pro Anual incluye tu página web. Capturamos el método de pago hoy y se cobra
-        automáticamente al terminar el mes de prueba.
-      </p>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  link,
-}: {
-  label: string;
-  value: string;
-  link?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={`text-right font-medium ${link ? "underline underline-offset-2" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
 }
 
 // ─── Contacto ───────────────────────────────────────────────────────────────
 
 function StepContacto({
   alta,
+  submitCta,
   onSubmit,
 }: {
   alta: AltaState;
+  submitCta: string;
   onSubmit: (name: string, whatsapp: string) => void | Promise<void>;
 }) {
   const [name, setName] = useState(alta.contact_name);
   const [wa, setWa] = useState(alta.whatsapp);
-  const [validating, setValidating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const validName = name.trim().length >= 2;
   const validWa = /[+\d][\d\s-]{7,}/.test(wa.trim());
   const valid = validName && validWa;
@@ -940,42 +914,88 @@ function StepContacto({
     <form
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!valid || validating) return;
-        setValidating(true);
+        if (!valid || submitting) return;
+        setSubmitting(true);
         try {
           await onSubmit(name.trim(), wa.trim());
         } finally {
-          setValidating(false);
+          setSubmitting(false);
         }
       }}
       className="space-y-3"
     >
-      <div className="space-y-2">
-        <Input
-          autoFocus
-          placeholder="Tu nombre"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          disabled={validating}
-        />
-        <Input
-          placeholder="+34 600 000 000"
-          inputMode="tel"
-          value={wa}
-          onChange={(e) => setWa(e.target.value)}
-          disabled={validating}
-        />
+      <div className="rounded-xl border border-border/70 bg-muted/25 p-3">
+        <div className="flex items-start gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
+            <MessageCircle className="h-4 w-4" aria-hidden />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium leading-snug">¿Para qué pedimos tu móvil?</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Te avisamos por WhatsApp cuando tu web de{" "}
+              <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista y
+              si necesitas ayuda con el dominio o el pago. No hacemos llamadas ni enviamos spam.
+            </p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
+            <span
+              key={label}
+              className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
       </div>
-      <Button type="submit" disabled={!valid || validating} className="w-full" size="lg">
-        {validating ? (
+
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label htmlFor="contact-name" className="text-xs font-medium text-foreground">
+            Tu nombre
+          </label>
+          <Input
+            id="contact-name"
+            name="contact_name"
+            autoFocus
+            autoComplete="name"
+            placeholder="Ej. María"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={submitting}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="contact-whatsapp" className="text-xs font-medium text-foreground">
+            Tu WhatsApp
+          </label>
+          <Input
+            id="contact-whatsapp"
+            name="whatsapp"
+            placeholder="+34 600 000 000"
+            inputMode="tel"
+            autoComplete="tel"
+            type="tel"
+            value={wa}
+            onChange={(e) => setWa(e.target.value)}
+            disabled={submitting}
+          />
+          <p className="text-xs text-muted-foreground">
+            Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
+          </p>
+        </div>
+      </div>
+      <Button type="submit" disabled={!valid || submitting} className="w-full" size="lg">
+        {submitting ? (
           <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
         ) : (
           <Check className="mr-1.5 h-4 w-4" />
         )}
-        {validating ? "Validando WhatsApp…" : "Continuar al pago"}
+        {submitting ? "Guardando tu contacto…" : submitCta}
       </Button>
-      <p className="text-center text-[11px] text-muted-foreground">
-        Te contactaremos por WhatsApp para terminar la configuración.
+      <p className="text-center text-xs text-muted-foreground">
+        Después solo guardas tu tarjeta de forma segura (Stripe) para activar la prueba gratis.
       </p>
     </form>
   );

@@ -10,6 +10,7 @@ import {
   formatEUR,
 } from "@/lib/alta-config";
 import { finalizeCheckout } from "@/lib/alta.functions";
+import { clearAltaDraft } from "@/lib/checkout-scenario";
 
 const searchSchema = z.object({
   alta_id: z.string().optional(),
@@ -33,6 +34,10 @@ function Confirmacion() {
   const finalizeCheckoutFn = useServerFn(finalizeCheckout);
 
   useEffect(() => {
+    clearAltaDraft();
+  }, []);
+
+  useEffect(() => {
     if (!alta_id || !session_id) return;
 
     finalizeCheckoutFn({
@@ -46,7 +51,7 @@ function Confirmacion() {
   }, [alta_id, session_id, finalizeCheckoutFn]);
 
   return (
-    <main className="container-narrow flex min-h-screen flex-col items-center justify-center py-10 text-center">
+    <main className="container-narrow safe-area-bottom flex min-h-dvh flex-col items-center justify-center py-10 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-gradient text-white shadow-brand">
         <Check className="h-8 w-8" strokeWidth={3} />
       </div>

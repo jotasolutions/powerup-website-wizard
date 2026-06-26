@@ -77,8 +77,7 @@ export async function createAltaCheckoutSession(params: {
     client_reference_id: params.altaId,
     success_url: `${params.origin}/confirmacion?alta_id=${params.altaId}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${params.origin}/?cancelado=1`,
-    billing_address_collection: "required",
-    tax_id_collection: { enabled: true },
+    billing_address_collection: "auto",
   });
 }
 

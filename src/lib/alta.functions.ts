@@ -95,6 +95,7 @@ export const checkDomain = createServerFn({ method: "POST" })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkout: persiste el alta en Neon y abre Stripe Checkout (una sola llamada).
+// Para guardar el lead antes del pago, usar saveAlta + createCheckout por separado.
 // ─────────────────────────────────────────────────────────────────────────────
 const AltaInput = z.object({
   restaurant_name: z.string().min(1),
@@ -154,7 +155,7 @@ export const startCheckout = createServerFn({ method: "POST" })
     return { alta_id: altaId, checkout_url: session.url, mock: false };
   });
 
-/** @deprecated Usar startCheckout. Conservado por compatibilidad. */
+/** Guarda el alta en Neon (lead con WhatsApp) antes de abrir Stripe. */
 export const saveAlta = createServerFn({ method: "POST" })
   .validator((input: unknown) => AltaInput.omit({ origin: true }).parse(input))
   .handler(async ({ data }) => {
@@ -176,7 +177,7 @@ export const saveAlta = createServerFn({ method: "POST" })
     return { alta_id: altaId, saved: true as const };
   });
 
-/** @deprecated Usar startCheckout. Conservado por compatibilidad. */
+/** Abre Stripe Checkout para un alta ya guardado (pending_payment). */
 export const createCheckout = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
