@@ -6,32 +6,84 @@ export type GmbResult = {
   place_id: string;
 };
 
-type PlacesSearchResponse = {
-  places?: Array<{
-    id?: string;
-    displayName?: { text?: string };
-    formattedAddress?: string;
-  }>;
-  error?: { message?: string; status?: string };
+export type AddressSuggestion = {
+  place_id: string;
+  label: string;
+  simplified_address: string;
+};
+
+type AddressComponent = {
+  longText?: string;
+  shortText?: string;
+  types?: string[];
 };
 
 function parsePlaceId(resourceName: string): string {
   return resourceName.startsWith("places/") ? resourceName.slice("places/".length) : resourceName;
 }
 
-export async function searchRestaurants(query: string): Promise<GmbResult[]> {
+function componentText(components: AddressComponent[], type: string): string | undefined {
+  const c = components.find((item) => item.types?.includes(type));
+  return c?.longText ?? c?.shortText;
+}
+
+/** Calle aprox + ciudad, sin número de portal. */
+export function formatSimplifiedAddress(components: AddressComponent[]): string {
+  const route = componentText(components, "route");
+  const locality =
+    componentText(components, "locality") ??
+    componentText(components, "postal_town") ??
+    componentText(components, "administrative_area_level_2");
+
+  if (route && locality) return `${route}, ${locality}`;
+  if (route) return route;
+  if (locality) return locality;
+  return "";
+}
+
+async function placesFetch<T>(
+  path: string,
+  init: RequestInit & { fieldMask?: string },
+): Promise<T> {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) {
     throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
   }
 
-  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Goog-Api-Key": apiKey,
+    ...(init.fieldMask ? { "X-Goog-FieldMask": init.fieldMask } : {}),
+  };
+
+  const { fieldMask: _fm, ...rest } = init;
+  const response = await fetch(`https://places.googleapis.com/v1/${path}`, {
+    ...rest,
+    headers: { ...headers, ...(rest.headers as Record<string, string>) },
+  });
+
+  const payload = (await response.json()) as T & { error?: { message?: string } };
+
+  if (!response.ok) {
+    const detail = payload.error?.message ?? `HTTP ${response.status}`;
+    throw new Error(`Google Places no respondió correctamente: ${detail}`);
+  }
+
+  return payload;
+}
+
+type PlacesSearchResponse = {
+  places?: Array<{
+    id?: string;
+    displayName?: { text?: string };
+    formattedAddress?: string;
+  }>;
+};
+
+export async function searchRestaurants(query: string): Promise<GmbResult[]> {
+  const payload = await placesFetch<PlacesSearchResponse>("places:searchText", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress",
-    },
+    fieldMask: "places.id,places.displayName,places.formattedAddress",
     body: JSON.stringify({
       textQuery: query,
       languageCode: "es",
@@ -41,17 +93,6 @@ export async function searchRestaurants(query: string): Promise<GmbResult[]> {
     }),
   });
 
-  const payload = (await response.json()) as PlacesSearchResponse;
-
-  if (!response.ok) {
-    const detail = payload.error?.message ?? `HTTP ${response.status}`;
-    const hint =
-      response.status === 403
-        ? " Comprueba que la API key tenga habilitada Places API (New) y restricciones de aplicación «Ninguna» (es una llamada servidor-servidor)."
-        : "";
-    throw new Error(`Google Places no respondió correctamente: ${detail}${hint}`);
-  }
-
   return (payload.places ?? [])
     .filter((place) => place.id && place.displayName?.text)
     .map((place) => ({
@@ -59,4 +100,75 @@ export async function searchRestaurants(query: string): Promise<GmbResult[]> {
       address: place.formattedAddress ?? "",
       place_id: parsePlaceId(place.id!),
     }));
+}
+
+type AutocompleteResponse = {
+  suggestions?: Array<{
+    placePrediction?: {
+      placeId?: string;
+      text?: { text?: string };
+    };
+  }>;
+};
+
+export async function autocompleteAddress(
+  query: string,
+  sessionToken?: string,
+): Promise<Array<{ place_id: string; label: string }>> {
+  const body: Record<string, unknown> = {
+    input: query,
+    languageCode: "es",
+    regionCode: "ES",
+    includedRegionCodes: ["ES"],
+    includedPrimaryTypes: ["street_address", "route", "premise", "subpremise"],
+  };
+
+  if (sessionToken) {
+    body.sessionToken = sessionToken;
+  }
+
+  const payload = await placesFetch<AutocompleteResponse>("places:autocomplete", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  return (payload.suggestions ?? [])
+    .map((s) => s.placePrediction)
+    .filter((p): p is NonNullable<typeof p> => Boolean(p?.placeId && p.text?.text))
+    .map((p) => ({
+      place_id: p.placeId!,
+      label: p.text!.text!,
+    }));
+}
+
+type PlaceDetailsResponse = {
+  formattedAddress?: string;
+  addressComponents?: AddressComponent[];
+};
+
+export async function getSimplifiedAddress(placeId: string): Promise<string> {
+  const id = parsePlaceId(placeId);
+  const payload = await placesFetch<PlaceDetailsResponse>(`places/${id}`, {
+    method: "GET",
+    fieldMask: "formattedAddress,addressComponents",
+  });
+
+  const simplified = formatSimplifiedAddress(payload.addressComponents ?? []);
+  if (simplified) return simplified;
+
+  if (!payload.formattedAddress) return "";
+
+  return payload.formattedAddress.replace(/,?\s*\d+\s*,/, ",").replace(/\s+\d+\s*,/, ", ");
+}
+
+export async function resolveAddressSuggestions(
+  query: string,
+  sessionToken?: string,
+): Promise<AddressSuggestion[]> {
+  const suggestions = await autocompleteAddress(query, sessionToken);
+  return suggestions.slice(0, 6).map((s) => ({
+    place_id: s.place_id,
+    label: s.label,
+    simplified_address: s.label,
+  }));
 }

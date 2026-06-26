@@ -63,6 +63,31 @@ export function annualPlanLabel(): string {
   return `Después del día ${PLAN_PRO_ANUAL_DIAS_PRUEBA}: ${formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año`;
 }
 
+export function planProMonthlyEur(): number {
+  return PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR / 12;
+}
+
+export function planHeroPriceLabel(alta: AltaState): string {
+  const amount = amountDueToday(alta);
+  if (amount === 0) return "0 € hoy";
+  return `${formatEUR(amount)} hoy`;
+}
+
+export function planHeroBadgeLabel(): string {
+  return `${PLAN_PRO_ANUAL_DIAS_PRUEBA} días gratis`;
+}
+
+export function planHeroTitle(alta: AltaState): string {
+  const scenario = getCheckoutScenario(alta);
+  if (scenario === "trial_free") {
+    return "Plan Pro completo, con tu página web incluida";
+  }
+  if (scenario === "custom_domain") {
+    return `Dominio ${alta.domain} + Plan Pro con tu página web`;
+  }
+  return "Fee de gestión de tu web + Plan Pro con tu página web";
+}
+
 export const ALTA_DRAFT_STORAGE_KEY = "powerup-alta-draft";
 
 export type AltaDraft = {

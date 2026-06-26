@@ -69,7 +69,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" },
+      { name: "google", content: "notranslate" },
       { title: "PowerUp Menu · Página Web" },
       { name: "description", content: "Alta de Página Web para tu restaurante con PowerUp Menu." },
       { property: "og:type", content: "website" },
@@ -108,7 +109,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" translate="no" className="notranslate">
       <head>
         <HeadContent />
       </head>

@@ -14,7 +14,7 @@ import {
   hasNamecheapConfig,
   shouldMockDomainCheck,
 } from "./env.server";
-import { searchRestaurants } from "./google-places.server";
+import { searchRestaurants, resolveAddressSuggestions, getSimplifiedAddress } from "./google-places.server";
 import { checkDomainWithNamecheap } from "./namecheap.server";
 import WhatsappRepository from "@/server/repositories/WhatsappRepository";
 
@@ -57,6 +57,38 @@ export const gmbSearch = createServerFn({ method: "POST" })
 
     const results = await searchRestaurants(data.query);
     return { results };
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// address-autocomplete: sugerencias de dirección (calle + ciudad, sin número).
+// ─────────────────────────────────────────────────────────────────────────────
+export const addressAutocomplete = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        query: z.string().min(2),
+        session_token: z.string().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    if (!hasGooglePlaces()) {
+      throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
+    }
+
+    const suggestions = await resolveAddressSuggestions(data.query, data.session_token);
+    return { suggestions };
+  });
+
+export const addressResolve = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ place_id: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    if (!hasGooglePlaces()) {
+      throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
+    }
+
+    const simplified_address = await getSimplifiedAddress(data.place_id);
+    return { simplified_address };
   });
 
 // ─────────────────────────────────────────────────────────────────────────────

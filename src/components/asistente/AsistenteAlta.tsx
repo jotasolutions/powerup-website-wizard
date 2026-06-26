@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Search, ArrowLeft, Check, X, MessageCircle } from "lucide-react";
 import { ChatBubble, TypingBubble } from "./ChatBubble";
 import { ResumenPedido } from "./ResumenPedido";
+import { CheckoutLayout } from "./CheckoutLayout";
+import { TrustStrip } from "./TrustStrip";
+import { ResumenCtaButton } from "./ResumenCtaButton";
+import { AddressAutocomplete } from "./AddressAutocomplete";
+import { formatBotText } from "./formatBotText";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
 import {
   formatEUR,
@@ -22,6 +27,8 @@ import {
 } from "@/lib/checkout-scenario";
 import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } from "@/lib/alta.functions";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
+import { inputStepConfig } from "@/lib/input-step-config";
+import { scrollInputIntoView, useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { toast } from "sonner";
 
 type StepId =
@@ -91,6 +98,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const [botTyping, setBotTyping] = useState(false);
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("lead");
   const [pendingAltaId, setPendingAltaId] = useState<string | null>(null);
+  const [contactFormState, setContactFormState] = useState({ valid: false, submitting: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -110,6 +118,87 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const createCheckoutFn = useServerFn(createCheckout);
   const validateWhatsappFn = useServerFn(validateWhatsapp);
   const checkoutScenario = getCheckoutScenario(alta);
+  const keyboardInset = useKeyboardInset();
+  const isCheckoutMode = step === "resumen" || step === "contacto";
+
+  const headerSubtitle =
+    step === "resumen"
+      ? "Revisa tu pedido"
+      : step === "contacto"
+        ? "Último paso"
+        : "Alta guiada";
+
+  async function handleContactSubmit(contact_name: string, whatsapp: string) {
+    void validateWhatsappFn({ data: { phone: whatsapp } }).catch(() => {
+      toast.warning("No pudimos verificar el WhatsApp ahora. Lo revisaremos al contactarte.");
+    });
+
+    pushUser(`${contact_name} · ${whatsapp}`);
+    const altaActualizada = { ...alta, contact_name, whatsapp };
+    setAlta(altaActualizada);
+    setCheckoutPhase("lead");
+    setStep("enviando");
+
+    let altaId = pendingAltaId;
+
+    try {
+      const altaPayload = buildAltaPayload(alta, contact_name, whatsapp);
+
+      if (!altaId) {
+        const saved = await saveAltaFn({ data: altaPayload });
+        altaId = saved.alta_id;
+        setPendingAltaId(altaId);
+      }
+
+      saveAltaDraft({
+        alta: altaActualizada,
+        step: "contacto",
+        alta_id: altaId,
+      });
+
+      setCheckoutPhase("checkout");
+
+      const result = await createCheckoutFn({
+        data: { alta_id: altaId, origin: window.location.origin },
+      });
+
+      if (result.checkout_url) {
+        const mode = redirectToCheckout(result.checkout_url);
+        if (mode === "popup") {
+          setBotTyping(false);
+          setMessages((m) => [
+            ...m,
+            {
+              id: uid(),
+              role: "bot",
+              kind: "text",
+              text: "Te hemos abierto el pago de Stripe en una nueva pestaña. Si no aparece, permite ventanas emergentes en el navegador.",
+            },
+          ]);
+          setStep("contacto");
+        }
+      } else {
+        clearAltaDraft();
+        navigate({ to: "/confirmacion", search: { alta_id: result.alta_id } });
+      }
+    } catch (e) {
+      console.error(e);
+      setBotTyping(false);
+      const leadSaved = altaId != null;
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          role: "bot",
+          kind: "text",
+          text: leadSaved
+            ? `Tu contacto ya está guardado. ${checkoutErrorMessage(e)}`
+            : checkoutErrorMessage(e),
+        },
+      ]);
+      setStep("contacto");
+    }
+  }
 
   useEffect(() => {
     if (!recoverFromCancel) return;
@@ -131,12 +220,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
           kind: "text",
           text: "Has cerrado el pago sin terminar. Ya tenemos tu WhatsApp guardado — puedes continuar con el pago cuando quieras.",
         },
-        {
-          id: uid(),
-          role: "bot",
-          kind: "resumen-pedido",
-          alta: draft.alta,
-        },
       ]);
     } else {
       toast.message("Pago cancelado", {
@@ -150,31 +233,9 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   useEffect(() => {
     if (promptedStepsRef.current.has(step)) return;
 
-    if (step === "resumen") {
+    if (step === "resumen" || step === "contacto") {
       promptedStepsRef.current.add(step);
-      const snapshot = { ...alta };
-
-      setBotTyping(true);
-      const t = setTimeout(() => {
-        setMessages((m) => [
-          ...m,
-          {
-            id: uid(),
-            role: "bot",
-            kind: "text",
-            text: `Esto es lo que vamos a hacer para ${alta.restaurant_name}. Revísalo antes de seguir.`,
-          },
-          {
-            id: uid(),
-            role: "bot",
-            kind: "resumen-pedido",
-            alta: snapshot,
-          },
-        ]);
-        setBotTyping(false);
-      }, 450);
-
-      return () => clearTimeout(t);
+      return;
     }
 
     const text = botPromptForStep(step, alta);
@@ -243,7 +304,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
             )}
             <div className="leading-tight">
               <div className="font-display text-sm font-medium">Página Web</div>
-              <div className="text-xs text-muted-foreground">Alta guiada</div>
+              <div className="text-xs text-muted-foreground">{headerSubtitle}</div>
             </div>
           </div>
           <div className="text-xs text-muted-foreground">
@@ -261,247 +322,219 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         </div>
       </header>
 
-      {/* Chat scrollable */}
-      <main
-        ref={scrollRef}
-        className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
-      >
-        {messages.map((m) => (
-          <ChatMessage key={m.id} message={m} />
-        ))}
-        {botTyping && <TypingBubble />}
-        <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
-      </main>
-
-      {/* Zona de input según el paso */}
-      <footer
-        ref={footerRef}
-        className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
-      >
-        <div className="container-narrow py-4">
-          {step === "restaurante" && (
-            <StepRestaurante
-              onPick={(r) => {
-                setAlta((a) => ({
-                  ...a,
-                  restaurant_name: r.name,
-                  restaurant_address: r.address,
-                  gmb_place_id: r.place_id,
-                  domain: a.domain || generarSubdominio(r.name),
-                }));
-                pushUser(r.name);
-                go("tieneWeb");
-              }}
-              onManual={(name, address) => {
-                setAlta((a) => ({
-                  ...a,
-                  restaurant_name: name,
-                  restaurant_address: address,
-                  gmb_place_id: null,
-                  domain: a.domain || generarSubdominio(name),
-                }));
-                pushUser(name);
-                go("tieneWeb");
-              }}
-              search={gmbSearchFn}
-            />
-          )}
-
-          {step === "tieneWeb" && (
-            <ChoiceRow
-              options={[
-                {
-                  label: "Sí, ya tengo web",
-                  onClick: () => {
-                    pushUser("Sí, ya tengo web");
-                    setAlta((a) => ({ ...a, has_existing_website: true }));
-                    go("tieneWebUrl");
-                  },
-                },
-                {
-                  label: "No, todavía no",
-                  onClick: () => {
-                    pushUser("No, todavía no");
-                    setAlta((a) => ({ ...a, has_existing_website: false }));
-                    go("dominioCustom");
-                  },
-                },
-              ]}
-            />
-          )}
-
-          {step === "tieneWebUrl" && (
-            <StepUrl
-              onSubmit={(url) => {
-                pushUser(url);
-                setAlta((a) => ({ ...a, existing_website_url: url }));
-                go("resumen");
-              }}
-            />
-          )}
-
-          {step === "dominioCustom" && (
-            <>
-              <p className="mb-3 text-xs text-muted-foreground">
-                Por defecto te creamos una dirección gratis tipo{" "}
-                <span className="font-medium text-foreground">{generarSubdominio(alta.restaurant_name)}</span>. Un
-                dominio personalizado sería algo como{" "}
-                <span className="font-medium text-foreground">turestaurante.es</span>.
-              </p>
-              <ChoiceRow
-                options={[
-                  {
-                    label: "Sí, dominio personalizado",
-                    onClick: () => {
-                      pushUser("Sí, quiero un dominio personalizado");
-                      setAlta((a) => ({ ...a, wants_custom_domain: true }));
-                      go("elegirDominio");
-                    },
-                  },
-                  {
-                    label: "No, usa el gratis",
-                    onClick: () => {
-                      pushUser("No, usa el gratis");
-                      const sub = generarSubdominio(alta.restaurant_name);
-                      setAlta((a) => ({
-                        ...a,
-                        wants_custom_domain: false,
-                        domain: sub,
-                        domain_is_custom: false,
-                        domain_price: null,
-                      }));
-                      go("resumen");
-                    },
-                  },
-                ]}
-              />
-            </>
-          )}
-
-          {step === "elegirDominio" && (
-            <StepElegirDominio
-              onAvailable={(domain, price) => {
-                pushUser(domain);
-                setAlta((a) => ({
-                  ...a,
-                  domain,
-                  domain_is_custom: true,
-                  domain_price: price,
-                }));
-                go("resumen");
-              }}
-              onSkip={() => {
-                pushUser("Continuar sin dominio personalizado");
-                const sub = generarSubdominio(alta.restaurant_name);
-                setAlta((a) => ({
-                  ...a,
-                  wants_custom_domain: false,
-                  domain: sub,
-                  domain_is_custom: false,
-                  domain_price: null,
-                }));
-                go("resumen");
-              }}
-              checkDomainFn={checkDomainFn}
-            />
-          )}
-
-          {step === "resumen" && (
-            <Button className="w-full" size="lg" onClick={() => go("contacto")}>
-              {getResumenCta(checkoutScenario)}
-            </Button>
-          )}
-
-          {step === "contacto" && (
+      {step === "enviando" ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-sm text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          {checkoutPhase === "lead" ? "Guardando tu contacto…" : "Preparando tu pago seguro…"}
+        </div>
+      ) : isCheckoutMode ? (
+        <CheckoutLayout
+          alta={alta}
+          step={step}
+          keyboardInset={keyboardInset}
+          mainFooter={
+            step === "resumen" ? (
+              <ResumenCtaButton onClick={() => go("contacto")}>
+                {getResumenCta(checkoutScenario)}
+              </ResumenCtaButton>
+            ) : undefined
+          }
+          footer={
+            step === "contacto" ? (
+              <>
+                <Button
+                  form="contacto-form"
+                  type="submit"
+                  disabled={!contactFormState.valid || contactFormState.submitting}
+                  className="w-full"
+                  size="lg"
+                >
+                  {contactFormState.submitting ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="mr-1.5 h-4 w-4" />
+                  )}
+                  {contactFormState.submitting
+                    ? "Guardando tu contacto…"
+                    : getContactoCta(checkoutScenario)}
+                </Button>
+                <p className="text-center text-[10px] text-muted-foreground">
+                  Después solo guardas tu tarjeta de forma segura (Stripe) para activar la prueba
+                  gratis.
+                </p>
+              </>
+            ) : undefined
+          }
+          footerRibbon={step === "resumen" ? <TrustStrip /> : undefined}
+        >
+          {step === "contacto" ? (
             <StepContacto
               alta={alta}
+              layout="checkout"
+              formId="contacto-form"
               submitCta={getContactoCta(checkoutScenario)}
-              onSubmit={async (contact_name, whatsapp) => {
-                void validateWhatsappFn({ data: { phone: whatsapp } }).catch(() => {
-                  toast.warning(
-                    "No pudimos verificar el WhatsApp ahora. Lo revisaremos al contactarte.",
-                  );
-                });
-
-                pushUser(`${contact_name} · ${whatsapp}`);
-                const altaActualizada = { ...alta, contact_name, whatsapp };
-                setAlta(altaActualizada);
-                setCheckoutPhase("lead");
-                setStep("enviando");
-
-                let altaId = pendingAltaId;
-
-                try {
-                  const altaPayload = buildAltaPayload(alta, contact_name, whatsapp);
-
-                  if (!altaId) {
-                    const saved = await saveAltaFn({ data: altaPayload });
-                    altaId = saved.alta_id;
-                    setPendingAltaId(altaId);
-                  }
-
-                  saveAltaDraft({
-                    alta: altaActualizada,
-                    step: "contacto",
-                    alta_id: altaId,
-                  });
-
-                  setCheckoutPhase("checkout");
-
-                  const result = await createCheckoutFn({
-                    data: { alta_id: altaId, origin: window.location.origin },
-                  });
-
-                  if (result.checkout_url) {
-                    const mode = redirectToCheckout(result.checkout_url);
-                    if (mode === "popup") {
-                      setBotTyping(false);
-                      setMessages((m) => [
-                        ...m,
-                        {
-                          id: uid(),
-                          role: "bot",
-                          kind: "text",
-                          text: "Te hemos abierto el pago de Stripe en una nueva pestaña. Si no aparece, permite ventanas emergentes en el navegador.",
-                        },
-                      ]);
-                      setStep("contacto");
-                    }
-                  } else {
-                    clearAltaDraft();
-                    navigate({ to: "/confirmacion", search: { alta_id: result.alta_id } });
-                  }
-                } catch (e) {
-                  console.error(e);
-                  setBotTyping(false);
-                  const leadSaved = altaId != null;
-                  setMessages((m) => [
-                    ...m,
-                    {
-                      id: uid(),
-                      role: "bot",
-                      kind: "text",
-                      text: leadSaved
-                        ? `Tu contacto ya está guardado. ${checkoutErrorMessage(e)}`
-                        : checkoutErrorMessage(e),
-                    },
-                  ]);
-                  setStep("contacto");
-                }
-              }}
+              onSubmit={handleContactSubmit}
+              onFocusInput={scrollInputIntoView}
+              onFormStateChange={setContactFormState}
             />
-          )}
+          ) : null}
+        </CheckoutLayout>
+      ) : (
+        <>
+          <main
+            ref={scrollRef}
+            className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
+            style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+          >
+            {messages.map((m) => (
+              <ChatMessage key={m.id} message={m} />
+            ))}
+            {botTyping && <TypingBubble />}
+            <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
+          </main>
 
-          {step === "enviando" && (
-            <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {checkoutPhase === "lead"
-                ? "Guardando tu contacto…"
-                : "Preparando tu pago seguro…"}
+          <footer
+            ref={footerRef}
+            className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
+            style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+          >
+            <div className="container-narrow py-4">
+              {step === "restaurante" && (
+                <StepRestaurante
+                  onFocusInput={scrollInputIntoView}
+                  onPick={(r) => {
+                    setAlta((a) => ({
+                      ...a,
+                      restaurant_name: r.name,
+                      restaurant_address: r.address,
+                      gmb_place_id: r.place_id,
+                      domain: a.domain || generarSubdominio(r.name),
+                    }));
+                    pushUser(r.name);
+                    go("tieneWeb");
+                  }}
+                  onManual={(name, address) => {
+                    setAlta((a) => ({
+                      ...a,
+                      restaurant_name: name,
+                      restaurant_address: address,
+                      gmb_place_id: null,
+                      domain: a.domain || generarSubdominio(name),
+                    }));
+                    pushUser(name);
+                    go("tieneWeb");
+                  }}
+                  search={gmbSearchFn}
+                />
+              )}
+
+              {step === "tieneWeb" && (
+                <ChoiceRow
+                  options={[
+                    {
+                      label: "Sí, ya tengo web",
+                      onClick: () => {
+                        pushUser("Sí, ya tengo web");
+                        setAlta((a) => ({ ...a, has_existing_website: true }));
+                        go("tieneWebUrl");
+                      },
+                    },
+                    {
+                      label: "No, todavía no",
+                      onClick: () => {
+                        pushUser("No, todavía no");
+                        setAlta((a) => ({ ...a, has_existing_website: false }));
+                        go("dominioCustom");
+                      },
+                    },
+                  ]}
+                />
+              )}
+
+              {step === "tieneWebUrl" && (
+                <StepUrl
+                  onFocusInput={scrollInputIntoView}
+                  onSubmit={(url) => {
+                    pushUser(url);
+                    setAlta((a) => ({ ...a, existing_website_url: url }));
+                    go("resumen");
+                  }}
+                />
+              )}
+
+              {step === "dominioCustom" && (
+                <>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Por defecto te creamos una dirección gratis tipo{" "}
+                    <span className="font-medium text-foreground">
+                      {generarSubdominio(alta.restaurant_name)}
+                    </span>
+                    . Un dominio personalizado sería algo como{" "}
+                    <span className="font-medium text-foreground">turestaurante.es</span>.
+                  </p>
+                  <ChoiceRow
+                    options={[
+                      {
+                        label: "Sí, dominio personalizado",
+                        onClick: () => {
+                          pushUser("Sí, quiero un dominio personalizado");
+                          setAlta((a) => ({ ...a, wants_custom_domain: true }));
+                          go("elegirDominio");
+                        },
+                      },
+                      {
+                        label: "No, usa el gratis",
+                        onClick: () => {
+                          pushUser("No, usa el gratis");
+                          const sub = generarSubdominio(alta.restaurant_name);
+                          setAlta((a) => ({
+                            ...a,
+                            wants_custom_domain: false,
+                            domain: sub,
+                            domain_is_custom: false,
+                            domain_price: null,
+                          }));
+                          go("resumen");
+                        },
+                      },
+                    ]}
+                  />
+                </>
+              )}
+
+              {step === "elegirDominio" && (
+                <StepElegirDominio
+                  onFocusInput={scrollInputIntoView}
+                  onAvailable={(domain, price) => {
+                    pushUser(domain);
+                    setAlta((a) => ({
+                      ...a,
+                      domain,
+                      domain_is_custom: true,
+                      domain_price: price,
+                    }));
+                    go("resumen");
+                  }}
+                  onSkip={() => {
+                    pushUser("Continuar sin dominio personalizado");
+                    const sub = generarSubdominio(alta.restaurant_name);
+                    setAlta((a) => ({
+                      ...a,
+                      wants_custom_domain: false,
+                      domain: sub,
+                      domain_is_custom: false,
+                      domain_price: null,
+                    }));
+                    go("resumen");
+                  }}
+                  checkDomainFn={checkDomainFn}
+                />
+              )}
+
             </div>
-          )}
-        </div>
-      </footer>
+          </footer>
+        </>
+      )}
     </div>
   );
 }
@@ -527,22 +560,20 @@ function stepIndexFor(s: StepId): number {
   }
 }
 
-function botPromptForStep(s: StepId, a: AltaState): string | null {
+function botPromptForStep(s: StepId, _a: AltaState): string | null {
   switch (s) {
     case "restaurante":
-      return "Para empezar, dime cómo se llama tu restaurante. Busca en Google y selecciónalo de la lista.";
+      return "Busca tu restaurante en Google y selecciónalo de la lista.";
     case "tieneWeb":
-      return "¿Ya tienes una página web propia para tu restaurante?";
+      return "¿Ya tienes página web propia?";
     case "tieneWebUrl":
-      return "Genial. ¿Cuál es la dirección de tu web actual?";
+      return "¿Cuál es la URL de tu web actual?";
     case "dominioCustom":
       return "¿Quieres un dominio personalizado para tu nueva web?";
     case "elegirDominio":
-      return "Perfecto. ¿Qué dominio te gustaría usar? Escríbelo sin “www” (por ejemplo: turestaurante.es).";
+      return "Escribe el dominio que te gustaría, sin «www» (ej. turestaurante.es).";
     case "resumen":
-      return null;
     case "contacto":
-      return "Déjame tu nombre y tu WhatsApp: solo te escribimos para avisarte del estado de tu web y ayudarte si lo necesitas.";
     case "enviando":
       return null;
   }
@@ -554,10 +585,12 @@ function StepRestaurante({
   onPick,
   onManual,
   search,
+  onFocusInput,
 }: {
   onPick: (r: GmbResult) => void;
   onManual: (name: string, address: string) => void;
   search: (args: { data: { query: string } }) => Promise<{ results: GmbResult[] }>;
+  onFocusInput?: (el: HTMLElement) => void;
 }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<GmbResult[]>([]);
@@ -596,17 +629,33 @@ function StepRestaurante({
   if (manual) {
     return (
       <div className="space-y-3">
-        <div className="space-y-2">
-          <Input
-            placeholder="Nombre del restaurante"
-            value={mName}
-            onChange={(e) => setMName(e.target.value)}
-          />
-          <Input
-            placeholder="Dirección"
-            value={mAddress}
-            onChange={(e) => setMAddress(e.target.value)}
-          />
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label htmlFor="manual-restaurant-name" className="text-xs font-medium">
+              Nombre del restaurante
+            </label>
+            <Input
+              id="manual-restaurant-name"
+              placeholder="Ej. Bar La Plaza"
+              value={mName}
+              onChange={(e) => setMName(e.target.value)}
+              onFocus={(e) => {
+                onFocusInput?.(e.currentTarget);
+                scrollInputIntoView(e.currentTarget);
+              }}
+              {...inputStepConfig.restaurantNameManual}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="manual-restaurant-address" className="text-xs font-medium">
+              Ubicación aproximada
+            </label>
+            <AddressAutocomplete
+              value={mAddress}
+              onChange={setMAddress}
+              onFocusInput={onFocusInput}
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between gap-2">
           <button
@@ -627,6 +676,8 @@ function StepRestaurante({
     );
   }
 
+  const searchAttrs = inputStepConfig.restaurantSearch;
+
   return (
     <div className="space-y-2">
       <div className="relative">
@@ -639,7 +690,12 @@ function StepRestaurante({
             setQ(e.target.value);
             setSearchError(null);
           }}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
           className="pl-9"
+          {...searchAttrs}
         />
       </div>
 
@@ -702,30 +758,55 @@ function ChoiceRow({ options }: { options: { label: string; onClick: () => void 
 
 // ─── Paso URL web propia ────────────────────────────────────────────────────
 
-function StepUrl({ onSubmit }: { onSubmit: (url: string) => void }) {
+function StepUrl({
+  onSubmit,
+  onFocusInput,
+}: {
+  onSubmit: (url: string) => void;
+  onFocusInput?: (el: HTMLElement) => void;
+}) {
   const [url, setUrl] = useState("");
-  const valid = /^https?:\/\/.+\..+/.test(url.trim()) || /^[\w-]+\.[\w.-]+/.test(url.trim());
+  const trimmed = url.trim();
+  const valid =
+    /^https?:\/\/.+\..+/.test(trimmed) || /^[\w-]+\.[\w.-]+/.test(trimmed);
+  const showHint = trimmed.length > 0 && !valid;
+
   return (
     <form
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
         if (!valid) return;
-        let v = url.trim();
+        let v = trimmed;
         if (!/^https?:\/\//.test(v)) v = `https://${v}`;
         onSubmit(v);
       }}
-      className="flex flex-col gap-2 sm:flex-row sm:items-center"
+      className="flex flex-col gap-2"
     >
-      <Input
-        autoFocus
-        placeholder="https://turestaurante.com"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        className="min-w-0 flex-1"
-      />
-      <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
-        Enviar
-      </Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Input
+          autoFocus
+          placeholder="https://turestaurante.com"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
+          className="min-w-0 flex-1"
+          aria-invalid={showHint}
+          aria-describedby={showHint ? "website-url-hint" : undefined}
+          {...inputStepConfig.websiteUrl}
+        />
+        <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
+          Enviar
+        </Button>
+      </div>
+      {showHint ? (
+        <p id="website-url-hint" className="text-xs text-destructive">
+          Escribe una URL válida, por ejemplo turestaurante.com o https://turestaurante.com
+        </p>
+      ) : null}
     </form>
   );
 }
@@ -746,6 +827,7 @@ function StepElegirDominio({
   onAvailable,
   onSkip,
   checkDomainFn,
+  onFocusInput,
 }: {
   onAvailable: (domain: string, price: number) => void;
   onSkip: () => void;
@@ -753,6 +835,7 @@ function StepElegirDominio({
     | { available: true; price: number }
     | { available: false; alternatives: Array<{ domain: string; price: number }> }
   >;
+  onFocusInput?: (el: HTMLElement) => void;
 }) {
   const [domain, setDomain] = useState("");
   const [loading, setLoading] = useState(false);
@@ -801,7 +884,12 @@ function StepElegirDominio({
           placeholder="turestaurante.es"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
           className="min-w-0 flex-1"
+          {...inputStepConfig.domain}
         />
         <Button type="submit" disabled={!valid || loading} className="h-11 w-full shrink-0 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
@@ -882,7 +970,7 @@ function ChatMessage({ message }: { message: ChatMessage }) {
 
   switch (message.kind) {
     case "text":
-      return <ChatBubble role="bot">{message.text}</ChatBubble>;
+      return <ChatBubble role="bot">{formatBotText(message.text)}</ChatBubble>;
     case "resumen-pedido":
       return (
         <ChatBubble role="bot">
@@ -898,10 +986,18 @@ function StepContacto({
   alta,
   submitCta,
   onSubmit,
+  onFocusInput,
+  layout = "default",
+  formId,
+  onFormStateChange,
 }: {
   alta: AltaState;
   submitCta: string;
   onSubmit: (name: string, whatsapp: string) => void | Promise<void>;
+  onFocusInput?: (el: HTMLElement) => void;
+  layout?: "default" | "checkout";
+  formId?: string;
+  onFormStateChange?: (state: { valid: boolean; submitting: boolean }) => void;
 }) {
   const [name, setName] = useState(alta.contact_name);
   const [wa, setWa] = useState(alta.whatsapp);
@@ -909,9 +1005,86 @@ function StepContacto({
   const validName = name.trim().length >= 2;
   const validWa = /[+\d][\d\s-]{7,}/.test(wa.trim());
   const valid = validName && validWa;
+  const checkout = layout === "checkout";
+
+  useEffect(() => {
+    onFormStateChange?.({ valid, submitting });
+  }, [valid, submitting, onFormStateChange]);
+
+  const reassuranceBlock = (
+    <div className="rounded-xl border border-border/70 bg-muted/25 p-3">
+      <div className="flex items-start gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
+          <MessageCircle className="h-4 w-4" aria-hidden />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-medium leading-snug">¿Para qué pedimos tu móvil?</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Te avisamos por WhatsApp cuando tu web de{" "}
+            <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista y si
+            necesitas ayuda con el dominio o el pago. No hacemos llamadas ni enviamos spam.
+          </p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
+          <span
+            key={label}
+            className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+
+  const fieldsBlock = (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <label htmlFor="contact-name" className="text-xs font-medium text-foreground">
+          Tu nombre
+        </label>
+        <Input
+          id="contact-name"
+          autoFocus
+          placeholder="Ej. María"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
+          disabled={submitting}
+          {...inputStepConfig.contactName}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor="contact-whatsapp" className="text-xs font-medium text-foreground">
+          Tu WhatsApp
+        </label>
+        <Input
+          id="contact-whatsapp"
+          placeholder="+34 600 000 000"
+          value={wa}
+          onChange={(e) => setWa(e.target.value)}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
+          disabled={submitting}
+          {...inputStepConfig.contactWhatsapp}
+        />
+        <p className="text-xs text-muted-foreground">
+          Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
+        </p>
+      </div>
+    </div>
+  );
 
   return (
     <form
+      id={formId}
       onSubmit={async (e) => {
         e.preventDefault();
         if (!valid || submitting) return;
@@ -924,79 +1097,23 @@ function StepContacto({
       }}
       className="space-y-3"
     >
-      <div className="rounded-xl border border-border/70 bg-muted/25 p-3">
-        <div className="flex items-start gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
-            <MessageCircle className="h-4 w-4" aria-hidden />
-          </div>
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium leading-snug">¿Para qué pedimos tu móvil?</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Te avisamos por WhatsApp cuando tu web de{" "}
-              <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista y
-              si necesitas ayuda con el dominio o el pago. No hacemos llamadas ni enviamos spam.
-            </p>
-          </div>
-        </div>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
-            <span
-              key={label}
-              className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <label htmlFor="contact-name" className="text-xs font-medium text-foreground">
-            Tu nombre
-          </label>
-          <Input
-            id="contact-name"
-            name="contact_name"
-            autoFocus
-            autoComplete="name"
-            placeholder="Ej. María"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={submitting}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="contact-whatsapp" className="text-xs font-medium text-foreground">
-            Tu WhatsApp
-          </label>
-          <Input
-            id="contact-whatsapp"
-            name="whatsapp"
-            placeholder="+34 600 000 000"
-            inputMode="tel"
-            autoComplete="tel"
-            type="tel"
-            value={wa}
-            onChange={(e) => setWa(e.target.value)}
-            disabled={submitting}
-          />
-          <p className="text-xs text-muted-foreground">
-            Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
+      {reassuranceBlock}
+      {fieldsBlock}
+      {!checkout ? (
+        <>
+          <Button type="submit" disabled={!valid || submitting} className="w-full" size="lg">
+            {submitting ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Check className="mr-1.5 h-4 w-4" />
+            )}
+            {submitting ? "Guardando tu contacto…" : submitCta}
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            Después solo guardas tu tarjeta de forma segura (Stripe) para activar la prueba gratis.
           </p>
-        </div>
-      </div>
-      <Button type="submit" disabled={!valid || submitting} className="w-full" size="lg">
-        {submitting ? (
-          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-        ) : (
-          <Check className="mr-1.5 h-4 w-4" />
-        )}
-        {submitting ? "Guardando tu contacto…" : submitCta}
-      </Button>
-      <p className="text-center text-xs text-muted-foreground">
-        Después solo guardas tu tarjeta de forma segura (Stripe) para activar la prueba gratis.
-      </p>
+        </>
+      ) : null}
     </form>
   );
 }

@@ -34,7 +34,7 @@ export function ChatBubble({ role, children }: Props) {
   return (
     <div className="flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <BotAvatar />
-      <div className="max-w-[85%] min-w-0 break-words rounded-2xl rounded-tl-md bg-bubble-bot px-4 py-3 text-sm text-bubble-bot-foreground shadow-bubble">
+      <div className="max-w-[85%] min-w-0 break-words rounded-2xl rounded-tl-md bg-bubble-bot px-4 py-3 text-[15px] leading-relaxed text-bubble-bot-foreground shadow-bubble">
         {children}
       </div>
     </div>
