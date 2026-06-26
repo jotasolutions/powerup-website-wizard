@@ -723,7 +723,6 @@ function StepRestaurante({
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            autoFocus
             placeholder="Busca tu restaurante"
             value={q}
             onChange={(e) => {
@@ -810,7 +809,6 @@ function StepUrl({
       <KeyboardAwareField>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
-            autoFocus
             placeholder="https://turestaurante.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -907,7 +905,6 @@ function StepElegirDominio({
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <KeyboardAwareField className="min-w-0 flex-1">
           <Input
-            autoFocus
             placeholder="turestaurante.es"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
@@ -1075,7 +1072,6 @@ function StepContacto({
           </label>
           <Input
             id="contact-name"
-            autoFocus
             placeholder="Ej. María"
             value={name}
             onChange={(e) => setName(e.target.value)}
