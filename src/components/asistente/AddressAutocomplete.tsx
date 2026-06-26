@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { KeyboardAwareField } from "./KeyboardAwareField";
 import { inputStepConfig } from "@/lib/input-step-config";
 import { addressAutocomplete, addressResolve } from "@/lib/alta.functions";
 import { scrollInputIntoView } from "@/hooks/useKeyboardInset";
@@ -78,27 +79,50 @@ export function AddressAutocomplete({ value, onChange, disabled, onFocusInput }:
   }
 
   const attrs = inputStepConfig.restaurantAddress;
+  const suggestionsOpen = !loading && suggestions.length > 0;
 
   return (
     <div className="space-y-1">
-      <Input
-        ref={inputRef}
-        id="restaurant-address"
-        placeholder="Busca calle o zona (sin número)"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          onChange(e.target.value);
-        }}
-        disabled={disabled}
-        onFocus={(e) => {
-          onFocusInput?.(e.currentTarget);
-          scrollInputIntoView(e.currentTarget);
-        }}
-        aria-autocomplete="list"
-        aria-controls={suggestions.length > 0 ? listId : undefined}
-        {...attrs}
-      />
+      <KeyboardAwareField
+        suggestionsOpen={suggestionsOpen}
+        suggestions={
+          <ul id={listId} role="listbox">
+            {suggestions.map((s) => (
+              <li key={s.place_id} role="option">
+                <button
+                  type="button"
+                  onClick={() => pick(s.place_id, s.label)}
+                  className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
+                >
+                  <span className="text-sm font-medium">{s.simplified_address}</span>
+                  {s.label !== s.simplified_address && (
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        }
+      >
+        <Input
+          ref={inputRef}
+          id="restaurant-address"
+          placeholder="Busca calle o zona (sin número)"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onChange(e.target.value);
+          }}
+          disabled={disabled}
+          onFocus={(e) => {
+            onFocusInput?.(e.currentTarget);
+            scrollInputIntoView(e.currentTarget);
+          }}
+          aria-autocomplete="list"
+          aria-controls={suggestionsOpen ? listId : undefined}
+          {...attrs}
+        />
+      </KeyboardAwareField>
       <p className="text-xs text-muted-foreground">
         Ejemplo: «Gran Vía, Madrid» — no hace falta el número del local.
       </p>
@@ -109,28 +133,6 @@ export function AddressAutocomplete({ value, onChange, disabled, onFocusInput }:
         </div>
       )}
       {error && <p className="px-1 text-xs text-destructive">{error}</p>}
-      {!loading && suggestions.length > 0 && (
-        <ul
-          id={listId}
-          role="listbox"
-          className="max-h-48 overflow-y-auto rounded-xl border bg-card shadow-card"
-        >
-          {suggestions.map((s) => (
-            <li key={s.place_id} role="option">
-              <button
-                type="button"
-                onClick={() => pick(s.place_id, s.label)}
-                className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
-              >
-                <span className="text-sm font-medium">{s.simplified_address}</span>
-                {s.label !== s.simplified_address && (
-                  <span className="text-xs text-muted-foreground">{s.label}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

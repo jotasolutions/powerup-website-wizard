@@ -28,7 +28,9 @@ import {
 import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } from "@/lib/alta.functions";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
 import { inputStepConfig } from "@/lib/input-step-config";
-import { scrollInputIntoView, useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { scrollInputIntoView, useVisualViewport } from "@/hooks/useKeyboardInset";
+import { KeyboardAwareField } from "./KeyboardAwareField";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type StepId =
@@ -44,6 +46,8 @@ type StepId =
 type CheckoutPhase = "lead" | "checkout";
 
 const TOTAL_STEPS = 6; // restaurante, web, dominio, resumen, contacto, pago
+
+const INPUT_FOOTER_STEPS = new Set<StepId>(["restaurante", "tieneWebUrl", "elegirDominio"]);
 
 function uid() {
   return Math.random().toString(36).slice(2, 11);
@@ -118,8 +122,18 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const createCheckoutFn = useServerFn(createCheckout);
   const validateWhatsappFn = useServerFn(validateWhatsapp);
   const checkoutScenario = getCheckoutScenario(alta);
-  const keyboardInset = useKeyboardInset();
+  const { keyboardInset, viewportHeight, viewportOffsetTop } = useVisualViewport();
   const isCheckoutMode = step === "resumen" || step === "contacto";
+  const collapseChatForKeyboard = keyboardInset > 0 && INPUT_FOOTER_STEPS.has(step);
+
+  const shellStyle =
+    keyboardInset > 0
+      ? {
+          height: viewportHeight,
+          transform:
+            viewportOffsetTop > 0 ? `translateY(${viewportOffsetTop}px)` : undefined,
+        }
+      : undefined;
 
   const headerSubtitle =
     step === "resumen"
@@ -286,7 +300,10 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const stepIndex = stepIndexFor(step);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div
+      className={cn("flex flex-col overflow-hidden", keyboardInset === 0 && "h-dvh")}
+      style={shellStyle}
+    >
       {/* Header */}
       <header className="safe-area-top z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
         <div className="container-narrow flex items-center justify-between py-3">
@@ -383,8 +400,12 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         <>
           <main
             ref={scrollRef}
-            className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
+            className={cn(
+              "container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6",
+              collapseChatForKeyboard && "max-h-0 min-h-0 overflow-hidden py-0",
+            )}
             style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+            aria-hidden={collapseChatForKeyboard}
           >
             {messages.map((m) => (
               <ChatMessage key={m.id} message={m} />
@@ -680,24 +701,44 @@ function StepRestaurante({
 
   return (
     <div className="space-y-2">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          autoFocus
-          placeholder="Busca tu restaurante"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setSearchError(null);
-          }}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          className="pl-9"
-          {...searchAttrs}
-        />
-      </div>
+      <KeyboardAwareField
+        suggestionsOpen={!loading && results.length > 0}
+        suggestions={
+          <ul>
+            {results.map((r) => (
+              <li key={r.place_id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(r)}
+                  className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
+                >
+                  <span className="text-sm font-medium">{r.name}</span>
+                  <span className="min-w-0 break-words text-xs text-muted-foreground">{r.address}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        }
+      >
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            autoFocus
+            placeholder="Busca tu restaurante"
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setSearchError(null);
+            }}
+            onFocus={(e) => {
+              onFocusInput?.(e.currentTarget);
+              scrollInputIntoView(e.currentTarget);
+            }}
+            className="pl-9"
+            {...searchAttrs}
+          />
+        </div>
+      </KeyboardAwareField>
 
       {loading && (
         <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
@@ -708,23 +749,6 @@ function StepRestaurante({
 
       {searchError && (
         <p className="px-2 text-xs text-destructive">{searchError}</p>
-      )}
-
-      {!loading && results.length > 0 && (
-        <ul className="max-h-56 overflow-y-auto rounded-xl border bg-card shadow-card">
-          {results.map((r) => (
-            <li key={r.place_id}>
-              <button
-                type="button"
-                onClick={() => onPick(r)}
-                className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
-              >
-                <span className="text-sm font-medium">{r.name}</span>
-                <span className="min-w-0 break-words text-xs text-muted-foreground">{r.address}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
 
       <button
@@ -783,25 +807,27 @@ function StepUrl({
       }}
       className="flex flex-col gap-2"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Input
-          autoFocus
-          placeholder="https://turestaurante.com"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          className="min-w-0 flex-1"
-          aria-invalid={showHint}
-          aria-describedby={showHint ? "website-url-hint" : undefined}
-          {...inputStepConfig.websiteUrl}
-        />
-        <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
-          Enviar
-        </Button>
-      </div>
+      <KeyboardAwareField>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            autoFocus
+            placeholder="https://turestaurante.com"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onFocus={(e) => {
+              onFocusInput?.(e.currentTarget);
+              scrollInputIntoView(e.currentTarget);
+            }}
+            className="min-w-0 flex-1"
+            aria-invalid={showHint}
+            aria-describedby={showHint ? "website-url-hint" : undefined}
+            {...inputStepConfig.websiteUrl}
+          />
+          <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
+            Enviar
+          </Button>
+        </div>
+      </KeyboardAwareField>
       {showHint ? (
         <p id="website-url-hint" className="text-xs text-destructive">
           Escribe una URL válida, por ejemplo turestaurante.com o https://turestaurante.com
@@ -879,18 +905,19 @@ function StepElegirDominio({
   return (
     <div className="space-y-3">
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Input
-          autoFocus
-          placeholder="turestaurante.es"
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          className="min-w-0 flex-1"
-          {...inputStepConfig.domain}
-        />
+        <KeyboardAwareField className="min-w-0 flex-1">
+          <Input
+            autoFocus
+            placeholder="turestaurante.es"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            onFocus={(e) => {
+              onFocusInput?.(e.currentTarget);
+              scrollInputIntoView(e.currentTarget);
+            }}
+            {...inputStepConfig.domain}
+          />
+        </KeyboardAwareField>
         <Button type="submit" disabled={!valid || loading} className="h-11 w-full shrink-0 sm:w-auto">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
         </Button>
@@ -1040,46 +1067,48 @@ function StepContacto({
   );
 
   const fieldsBlock = (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <label htmlFor="contact-name" className="text-xs font-medium text-foreground">
-          Tu nombre
-        </label>
-        <Input
-          id="contact-name"
-          autoFocus
-          placeholder="Ej. María"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          disabled={submitting}
-          {...inputStepConfig.contactName}
-        />
+    <KeyboardAwareField>
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <label htmlFor="contact-name" className="text-xs font-medium text-foreground">
+            Tu nombre
+          </label>
+          <Input
+            id="contact-name"
+            autoFocus
+            placeholder="Ej. María"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={(e) => {
+              onFocusInput?.(e.currentTarget);
+              scrollInputIntoView(e.currentTarget);
+            }}
+            disabled={submitting}
+            {...inputStepConfig.contactName}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="contact-whatsapp" className="text-xs font-medium text-foreground">
+            Tu WhatsApp
+          </label>
+          <Input
+            id="contact-whatsapp"
+            placeholder="+34 600 000 000"
+            value={wa}
+            onChange={(e) => setWa(e.target.value)}
+            onFocus={(e) => {
+              onFocusInput?.(e.currentTarget);
+              scrollInputIntoView(e.currentTarget);
+            }}
+            disabled={submitting}
+            {...inputStepConfig.contactWhatsapp}
+          />
+          <p className="text-xs text-muted-foreground">
+            Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
+          </p>
+        </div>
       </div>
-      <div className="space-y-1.5">
-        <label htmlFor="contact-whatsapp" className="text-xs font-medium text-foreground">
-          Tu WhatsApp
-        </label>
-        <Input
-          id="contact-whatsapp"
-          placeholder="+34 600 000 000"
-          value={wa}
-          onChange={(e) => setWa(e.target.value)}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          disabled={submitting}
-          {...inputStepConfig.contactWhatsapp}
-        />
-        <p className="text-xs text-muted-foreground">
-          Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
-        </p>
-      </div>
-    </div>
+    </KeyboardAwareField>
   );
 
   return (
