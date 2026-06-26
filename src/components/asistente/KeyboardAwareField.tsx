@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useVisualViewport } from "@/hooks/useKeyboardInset";
 
@@ -20,17 +20,21 @@ export function KeyboardAwareField({
   const [maxHeight, setMaxHeight] = useState(224);
   const { viewportHeight } = useVisualViewport();
 
+  const measure = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const vv = window.visualViewport;
+    const vvHeight = vv?.height ?? viewportHeight;
+    const vvOffsetTop = vv?.offsetTop ?? 0;
+    const rect = el.getBoundingClientRect();
+    const spaceAbove = rect.top - vvOffsetTop - 8;
+    const cap = Math.round(vvHeight * 0.4);
+    setMaxHeight(Math.max(80, Math.min(cap, spaceAbove)));
+  }, [viewportHeight]);
+
   useLayoutEffect(() => {
     if (!suggestionsOpen) return;
-
-    function measure() {
-      const el = containerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const spaceAbove = rect.top - 12;
-      const cap = Math.round(viewportHeight * 0.4);
-      setMaxHeight(Math.max(96, Math.min(cap, spaceAbove)));
-    }
 
     measure();
     const vv = window.visualViewport;
@@ -43,10 +47,22 @@ export function KeyboardAwareField({
       vv?.removeEventListener("scroll", measure);
       window.removeEventListener("orientationchange", measure);
     };
-  }, [suggestionsOpen, viewportHeight]);
+  }, [suggestionsOpen, measure]);
+
+  function handleFocusIn(e: React.FocusEvent) {
+    if (
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement
+    ) {
+      measure();
+      requestAnimationFrame(measure);
+      window.setTimeout(measure, 100);
+      window.setTimeout(measure, 300);
+    }
+  }
 
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
+    <div ref={containerRef} className={cn("relative", className)} onFocusIn={handleFocusIn}>
       {suggestionsOpen && suggestions ? (
         <div
           className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-card"

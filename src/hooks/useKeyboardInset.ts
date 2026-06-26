@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const KEYBOARD_OPEN_THRESHOLD = 50;
 
 export type VisualViewportState = {
   keyboardInset: number;
   viewportHeight: number;
   viewportOffsetTop: number;
+  isKeyboardOpen: boolean;
 };
 
-function readVisualViewport(): VisualViewportState {
+function readVisualViewport(baselineHeight: number): VisualViewportState {
   if (typeof window === "undefined") {
-    return { keyboardInset: 0, viewportHeight: 0, viewportOffsetTop: 0 };
+    return { keyboardInset: 0, viewportHeight: 0, viewportOffsetTop: 0, isKeyboardOpen: false };
   }
 
   const vv = window.visualViewport;
@@ -17,13 +20,21 @@ function readVisualViewport(): VisualViewportState {
       keyboardInset: 0,
       viewportHeight: window.innerHeight,
       viewportOffsetTop: 0,
+      isKeyboardOpen: false,
     };
   }
 
+  const viewportHeight = Math.round(vv.height);
+  const viewportOffsetTop = Math.round(vv.offsetTop);
+  const classicInset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  const baselineInset = Math.max(0, Math.round(baselineHeight - vv.height - vv.offsetTop));
+  const keyboardInset = Math.max(classicInset, baselineInset);
+
   return {
-    keyboardInset: Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)),
-    viewportHeight: Math.round(vv.height),
-    viewportOffsetTop: Math.round(vv.offsetTop),
+    keyboardInset,
+    viewportHeight,
+    viewportOffsetTop,
+    isKeyboardOpen: keyboardInset > KEYBOARD_OPEN_THRESHOLD,
   };
 }
 
@@ -43,27 +54,60 @@ function clearViewportCssVars() {
 
 /** Estado del visualViewport: teclado, altura visible y offset (iOS). */
 export function useVisualViewport(): VisualViewportState {
-  const [state, setState] = useState(readVisualViewport);
+  const baselineRef = useRef(
+    typeof window !== "undefined" ? window.innerHeight : 0,
+  );
+  const [state, setState] = useState(() => readVisualViewport(baselineRef.current));
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
     function update() {
-      const next = readVisualViewport();
+      const next = readVisualViewport(baselineRef.current);
+      if (next.keyboardInset < KEYBOARD_OPEN_THRESHOLD) {
+        baselineRef.current = Math.max(
+          baselineRef.current,
+          window.innerHeight,
+          next.viewportHeight + next.viewportOffsetTop,
+        );
+      }
       setState(next);
       applyViewportCssVars(next);
+    }
+
+    function scheduleRemeasure() {
+      update();
+      requestAnimationFrame(update);
+      window.setTimeout(update, 100);
+      window.setTimeout(update, 300);
+    }
+
+    function onFocusIn(e: FocusEvent) {
+      const target = e.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        scheduleRemeasure();
+      }
+    }
+
+    function onOrientationChange() {
+      window.setTimeout(() => {
+        baselineRef.current = window.innerHeight;
+        update();
+      }, 100);
     }
 
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
-    window.addEventListener("orientationchange", update);
+    window.addEventListener("orientationchange", onOrientationChange);
+    document.addEventListener("focusin", onFocusIn);
 
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
-      window.removeEventListener("orientationchange", update);
+      window.removeEventListener("orientationchange", onOrientationChange);
+      document.removeEventListener("focusin", onFocusIn);
       clearViewportCssVars();
     };
   }, []);

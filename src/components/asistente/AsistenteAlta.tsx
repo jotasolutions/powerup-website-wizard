@@ -29,6 +29,7 @@ import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } fr
 import { redirectToCheckout } from "@/lib/checkout-redirect";
 import { inputStepConfig } from "@/lib/input-step-config";
 import { scrollInputIntoView, useVisualViewport } from "@/hooks/useKeyboardInset";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -103,6 +104,8 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("lead");
   const [pendingAltaId, setPendingAltaId] = useState<string | null>(null);
   const [contactFormState, setContactFormState] = useState({ valid: false, submitting: false });
+  const [footerInputFocused, setFooterInputFocused] = useState(false);
+  const [footerHeight, setFooterHeight] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -123,17 +126,21 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const validateWhatsappFn = useServerFn(validateWhatsapp);
   const checkoutScenario = getCheckoutScenario(alta);
   const { keyboardInset, viewportHeight, viewportOffsetTop } = useVisualViewport();
+  const isMobile = useIsMobile();
   const isCheckoutMode = step === "resumen" || step === "contacto";
-  const collapseChatForKeyboard = keyboardInset > 0 && INPUT_FOOTER_STEPS.has(step);
+  const isInputFooterStep = INPUT_FOOTER_STEPS.has(step);
+  const collapseChatForKeyboard =
+    isInputFooterStep && (keyboardInset > 0 || footerInputFocused);
+  const pinShellHeight = keyboardInset > 0 || footerInputFocused;
+  const pinFooter = isMobile && footerInputFocused && isInputFooterStep;
 
-  const shellStyle =
-    keyboardInset > 0
-      ? {
-          height: viewportHeight,
-          transform:
-            viewportOffsetTop > 0 ? `translateY(${viewportOffsetTop}px)` : undefined,
-        }
-      : undefined;
+  const shellStyle = pinShellHeight
+    ? {
+        height: viewportHeight,
+        transform:
+          viewportOffsetTop > 0 ? `translateY(${viewportOffsetTop}px)` : undefined,
+      }
+    : undefined;
 
   const headerSubtitle =
     step === "resumen"
@@ -279,6 +286,59 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     return () => ro.disconnect();
   }, [scrollToBottom]);
 
+  useEffect(() => {
+    if (!isInputFooterStep) {
+      setFooterInputFocused(false);
+    }
+  }, [isInputFooterStep]);
+
+  useEffect(() => {
+    const footer = footerRef.current;
+    if (!footer || !isInputFooterStep) return;
+
+    function onFocusIn(e: FocusEvent) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        setFooterInputFocused(true);
+      }
+    }
+
+    function onFocusOut() {
+      window.setTimeout(() => {
+        const active = document.activeElement;
+        if (!footer?.contains(active)) {
+          setFooterInputFocused(false);
+        }
+      }, 100);
+    }
+
+    footer.addEventListener("focusin", onFocusIn);
+    footer.addEventListener("focusout", onFocusOut);
+    return () => {
+      footer.removeEventListener("focusin", onFocusIn);
+      footer.removeEventListener("focusout", onFocusOut);
+    };
+  }, [isInputFooterStep, step]);
+
+  useEffect(() => {
+    const footer = footerRef.current;
+    if (!footer || !pinFooter) {
+      setFooterHeight(0);
+      return;
+    }
+
+    function measure() {
+      setFooterHeight(footer?.offsetHeight ?? 0);
+    }
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(footer);
+    return () => ro.disconnect();
+  }, [pinFooter, step]);
+
   function pushUser(text: string) {
     setMessages((m) => [...m, { id: uid(), role: "user", kind: "text", text }]);
   }
@@ -301,7 +361,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
   return (
     <div
-      className={cn("flex flex-col overflow-hidden", keyboardInset === 0 && "h-dvh")}
+      className={cn("flex flex-col overflow-hidden", !pinShellHeight && "h-dvh")}
       style={shellStyle}
     >
       {/* Header */}
@@ -414,10 +474,25 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
             <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
           </main>
 
+          {pinFooter && footerHeight > 0 ? (
+            <div aria-hidden className="shrink-0" style={{ height: footerHeight }} />
+          ) : null}
+
           <footer
             ref={footerRef}
-            className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/80 backdrop-blur"
-            style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+            className={cn(
+              "safe-area-bottom border-t border-border/60",
+              pinFooter
+                ? "fixed inset-x-0 bottom-0 z-40 bg-white"
+                : "shrink-0 bg-white/80 backdrop-blur",
+            )}
+            style={{
+              transform:
+                pinFooter && viewportOffsetTop > 0
+                  ? `translateY(${viewportOffsetTop}px)`
+                  : undefined,
+              paddingBottom: keyboardInset > 0 ? keyboardInset : undefined,
+            }}
           >
             <div className="container-narrow py-4">
               {step === "restaurante" && (
