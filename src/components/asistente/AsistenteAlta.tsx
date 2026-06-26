@@ -1035,7 +1035,30 @@ function StepContacto({
     onFormStateChange?.({ valid, submitting });
   }, [valid, submitting, onFormStateChange]);
 
-  const reassuranceBlock = (
+  const reassuranceBlock = checkout ? (
+    <div className="rounded-xl border border-border/70 bg-muted/25 p-2.5">
+      <div className="flex items-start gap-2">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
+          <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+        </div>
+        <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
+          Te avisamos cuando tu web de{" "}
+          <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista. Sin
+          llamadas ni spam.
+        </p>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
+          <span
+            key={label}
+            className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  ) : (
     <div className="rounded-xl border border-border/70 bg-muted/25 p-3">
       <div className="flex items-start gap-2.5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
@@ -1100,7 +1123,9 @@ function StepContacto({
             {...inputStepConfig.contactWhatsapp}
           />
           <p className="text-xs text-muted-foreground">
-            Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde.
+            {checkout
+              ? "Lo guardamos por si quieres retomarlo más tarde."
+              : "Lo guardamos aunque no completes el pago — por si quieres retomarlo más tarde."}
           </p>
         </div>
       </div>

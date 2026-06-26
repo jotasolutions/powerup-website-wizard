@@ -64,7 +64,8 @@ export function CheckoutLayout({
   footerRibbon,
 }: Props) {
   const [trialOpen, setTrialOpen] = useState(false);
-  const allowScroll = keyboardInset > 0 || trialOpen;
+  const isContacto = step === "contacto";
+  const allowScroll = keyboardInset > 0 || trialOpen || isContacto;
 
   const title =
     step === "resumen"
@@ -82,6 +83,7 @@ export function CheckoutLayout({
         className={cn(
           "container-narrow flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 py-2 max-md:py-2 sm:gap-3 sm:py-4",
           allowScroll ? "overflow-y-auto" : "overflow-hidden",
+          isContacto && "pb-2",
         )}
         style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
       >
@@ -99,7 +101,9 @@ export function CheckoutLayout({
           />
         </div>
 
-        {children ? <div className="min-h-0 shrink">{children}</div> : null}
+        {children ? (
+          <div className={cn("min-h-0", isContacto ? "shrink-0" : "shrink")}>{children}</div>
+        ) : null}
 
         {step === "resumen" ? (
           <div className="mt-auto shrink-0 space-y-2 border-t border-border/60 pt-3">
