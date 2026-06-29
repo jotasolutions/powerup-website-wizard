@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-const KEYBOARD_OPEN_THRESHOLD = 50;
+export const KEYBOARD_OPEN_THRESHOLD = 50;
+
+const SSR_SAFE_STATE: VisualViewportState = {
+  keyboardInset: 0,
+  viewportHeight: 0,
+  viewportOffsetTop: 0,
+  isKeyboardOpen: false,
+};
 
 export type VisualViewportState = {
   keyboardInset: number;
@@ -9,9 +16,9 @@ export type VisualViewportState = {
   isKeyboardOpen: boolean;
 };
 
-function readVisualViewport(baselineHeight: number): VisualViewportState {
+function readVisualViewport(): VisualViewportState {
   if (typeof window === "undefined") {
-    return { keyboardInset: 0, viewportHeight: 0, viewportOffsetTop: 0, isKeyboardOpen: false };
+    return SSR_SAFE_STATE;
   }
 
   const vv = window.visualViewport;
@@ -26,9 +33,10 @@ function readVisualViewport(baselineHeight: number): VisualViewportState {
 
   const viewportHeight = Math.round(vv.height);
   const viewportOffsetTop = Math.round(vv.offsetTop);
-  const classicInset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-  const baselineInset = Math.max(0, Math.round(baselineHeight - vv.height - vv.offsetTop));
-  const keyboardInset = Math.max(classicInset, baselineInset);
+  const keyboardInset = Math.max(
+    0,
+    Math.round(window.innerHeight - vv.height - vv.offsetTop),
+  );
 
   return {
     keyboardInset,
@@ -41,6 +49,7 @@ function readVisualViewport(baselineHeight: number): VisualViewportState {
 function applyViewportCssVars(state: VisualViewportState) {
   const root = document.documentElement;
   root.style.setProperty("--keyboard-inset", `${state.keyboardInset}px`);
+  root.style.setProperty("--keyboard-inset-height", `${state.keyboardInset}px`);
   root.style.setProperty("--vv-height", `${state.viewportHeight}px`);
   root.style.setProperty("--vv-offset-top", `${state.viewportOffsetTop}px`);
 }
@@ -48,30 +57,48 @@ function applyViewportCssVars(state: VisualViewportState) {
 function clearViewportCssVars() {
   const root = document.documentElement;
   root.style.removeProperty("--keyboard-inset");
+  root.style.removeProperty("--keyboard-inset-height");
   root.style.removeProperty("--vv-height");
   root.style.removeProperty("--vv-offset-top");
 }
 
-/** Estado del visualViewport: teclado, altura visible y offset (iOS). */
+function findScrollParent(el: HTMLElement): HTMLElement | null {
+  let parent = el.parentElement;
+  while (parent) {
+    const { overflowY } = getComputedStyle(parent);
+    if (
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+  return null;
+}
+
+/** Estado del visualViewport: teclado, altura visible y offset (iOS). SSR-safe. */
 export function useVisualViewport(): VisualViewportState {
-  const baselineRef = useRef(
-    typeof window !== "undefined" ? window.innerHeight : 0,
-  );
-  const [state, setState] = useState(() => readVisualViewport(baselineRef.current));
+  const [state, setState] = useState<VisualViewportState>(SSR_SAFE_STATE);
 
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
+    if (!vv) {
+      setState(readVisualViewport());
+      return;
+    }
+
+    if ("virtualKeyboard" in navigator) {
+      try {
+        (navigator as Navigator & { virtualKeyboard: { overlaysContent: boolean } }).virtualKeyboard.overlaysContent =
+          true;
+      } catch {
+        // Progressive enhancement — no-op en navegadores sin soporte.
+      }
+    }
 
     function update() {
-      const next = readVisualViewport(baselineRef.current);
-      if (next.keyboardInset < KEYBOARD_OPEN_THRESHOLD) {
-        baselineRef.current = Math.max(
-          baselineRef.current,
-          window.innerHeight,
-          next.viewportHeight + next.viewportOffsetTop,
-        );
-      }
+      const next = readVisualViewport();
       setState(next);
       applyViewportCssVars(next);
     }
@@ -91,10 +118,7 @@ export function useVisualViewport(): VisualViewportState {
     }
 
     function onOrientationChange() {
-      window.setTimeout(() => {
-        baselineRef.current = window.innerHeight;
-        update();
-      }, 100);
+      window.setTimeout(update, 100);
     }
 
     update();
@@ -115,16 +139,21 @@ export function useVisualViewport(): VisualViewportState {
   return state;
 }
 
-/** Altura del teclado virtual (px) vía visualViewport — útil en iOS/Android. */
+/** Altura del teclado virtual (px) vía visualViewport. */
 export function useKeyboardInset(): number {
   return useVisualViewport().keyboardInset;
 }
 
 export function scrollInputIntoView(element: HTMLElement | null) {
-  if (!element) return;
+  if (!element || typeof window === "undefined") return;
+
+  // Inputs del footer fijo/flotante: el translateY del footer ya los alinea; no forzar scroll.
+  if (element.closest("footer")) return;
+
   window.setTimeout(() => {
+    const scrollParent = findScrollParent(element);
     const vv = window.visualViewport;
-    if (!vv) {
+    if (!scrollParent || !vv) {
       element.scrollIntoView({ block: "nearest", behavior: "smooth" });
       return;
     }
@@ -134,11 +163,9 @@ export function scrollInputIntoView(element: HTMLElement | null) {
     const padding = 12;
 
     if (rect.bottom > visibleBottom - padding) {
-      const scrollY = rect.bottom - (visibleBottom - padding);
-      window.scrollBy({ top: scrollY, behavior: "smooth" });
+      scrollParent.scrollTop += rect.bottom - (visibleBottom - padding);
     } else if (rect.top < vv.offsetTop + padding) {
-      const scrollY = rect.top - (vv.offsetTop + padding);
-      window.scrollBy({ top: scrollY, behavior: "smooth" });
+      scrollParent.scrollTop += rect.top - (vv.offsetTop + padding);
     }
-  }, 120);
+  }, 150);
 }

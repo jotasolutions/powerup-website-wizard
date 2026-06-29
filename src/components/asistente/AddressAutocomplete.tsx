@@ -1,138 +1,106 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { KeyboardAwareField } from "./KeyboardAwareField";
+import { SuggestionChips } from "./SuggestionChips";
 import { inputStepConfig } from "@/lib/input-step-config";
 import { addressAutocomplete, addressResolve } from "@/lib/alta.functions";
-import { scrollInputIntoView } from "@/hooks/useKeyboardInset";
+import { PLACES_MIN_QUERY_LENGTH, useAddressAutocomplete } from "@/hooks/usePlacesSuggestions";
+import type { AddressSuggestion } from "@/lib/google-places.server";
 
 type Props = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  onFocusInput?: (el: HTMLElement) => void;
 };
 
 function newSessionToken(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-export function AddressAutocomplete({ value, onChange, disabled, onFocusInput }: Props) {
+const assistantInputClass = "text-base md:text-base";
+
+export function AddressAutocomplete({ value, onChange, disabled }: Props) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState(value);
-  const [suggestions, setSuggestions] = useState<
-    Array<{ place_id: string; label: string; simplified_address: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const sessionTokenRef = useRef(newSessionToken());
   const addressAutocompleteFn = useServerFn(addressAutocomplete);
   const addressResolveFn = useServerFn(addressResolve);
+
+  const { data, isFetching, error } = useAddressAutocomplete(
+    query,
+    sessionTokenRef.current,
+    addressAutocompleteFn,
+  );
+
+  const suggestions = data?.suggestions ?? [];
+  const searchError =
+    error instanceof Error
+      ? error.message
+      : error
+        ? "No se pudo buscar la dirección. Inténtalo de nuevo."
+        : null;
 
   useEffect(() => {
     setQuery(value);
   }, [value]);
 
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setSuggestions([]);
-      setError(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    const t = setTimeout(async () => {
-      try {
-        const r = await addressAutocompleteFn({
-          data: { query: query.trim(), session_token: sessionTokenRef.current },
-        });
-        setSuggestions(r.suggestions);
-      } catch (e) {
-        console.error(e);
-        setSuggestions([]);
-        setError(
-          e instanceof Error ? e.message : "No se pudo buscar la dirección. Inténtalo de nuevo.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(t);
-  }, [query, addressAutocompleteFn]);
-
   async function pick(placeId: string, label: string) {
     try {
       const r = await addressResolveFn({ data: { place_id: placeId } });
-      const value = r.simplified_address || label;
-      onChange(value);
-      setQuery(value);
+      const nextValue = r.simplified_address || label;
+      onChange(nextValue);
+      setQuery(nextValue);
     } catch {
       onChange(label);
       setQuery(label);
     }
-    setSuggestions([]);
     sessionTokenRef.current = newSessionToken();
   }
 
   const attrs = inputStepConfig.restaurantAddress;
-  const suggestionsOpen = !loading && suggestions.length > 0;
+  const showSuggestions = query.trim().length >= PLACES_MIN_QUERY_LENGTH;
 
   return (
     <div className="space-y-1">
-      <KeyboardAwareField
-        suggestionsOpen={suggestionsOpen}
-        suggestions={
-          <ul id={listId} role="listbox">
-            {suggestions.map((s) => (
-              <li key={s.place_id} role="option">
-                <button
-                  type="button"
-                  onClick={() => pick(s.place_id, s.label)}
-                  className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
-                >
-                  <span className="text-sm font-medium">{s.simplified_address}</span>
-                  {s.label !== s.simplified_address && (
-                    <span className="text-xs text-muted-foreground">{s.label}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        }
-      >
-        <Input
-          ref={inputRef}
-          id="restaurant-address"
-          placeholder="Busca calle o zona (sin número)"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            onChange(e.target.value);
+      {showSuggestions && (
+        <SuggestionChips
+          listId={listId}
+          variant="footer"
+          items={suggestions.map((s) => ({
+            id: s.place_id,
+            primary: s.simplified_address,
+            secondary: s.label !== s.simplified_address ? s.label : undefined,
+          }))}
+          loading={isFetching}
+          error={searchError}
+          onSelect={(placeId) => {
+            const item = suggestions.find((s) => s.place_id === placeId);
+            void pick(placeId, item?.label ?? placeId);
           }}
-          disabled={disabled}
-          onFocus={(e) => {
-            onFocusInput?.(e.currentTarget);
-            scrollInputIntoView(e.currentTarget);
-          }}
-          aria-autocomplete="list"
-          aria-controls={suggestionsOpen ? listId : undefined}
-          {...attrs}
         />
-      </KeyboardAwareField>
+      )}
+      <Input
+        ref={inputRef}
+        id="restaurant-address"
+        placeholder="Busca calle o zona (sin número)"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange(e.target.value);
+        }}
+        disabled={disabled}
+        className={assistantInputClass}
+        aria-autocomplete="list"
+        aria-controls={suggestions.length > 0 ? listId : undefined}
+        {...attrs}
+      />
       <p className="text-xs text-muted-foreground">
         Ejemplo: «Gran Vía, Madrid» — no hace falta el número del local.
       </p>
-      {loading && (
-        <div className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Buscando dirección…
-        </div>
-      )}
-      {error && <p className="px-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }

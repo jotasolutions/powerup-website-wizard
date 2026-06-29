@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { CheckoutLayout } from "./CheckoutLayout";
 import { TrustStrip } from "./TrustStrip";
 import { ResumenCtaButton } from "./ResumenCtaButton";
 import { AddressAutocomplete } from "./AddressAutocomplete";
+import { SuggestionChips } from "./SuggestionChips";
 import { formatBotText } from "./formatBotText";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
 import {
@@ -28,8 +29,8 @@ import {
 import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } from "@/lib/alta.functions";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
 import { inputStepConfig } from "@/lib/input-step-config";
-import { scrollInputIntoView, useVisualViewport } from "@/hooks/useKeyboardInset";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { scrollInputIntoView, useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useGmbSearch } from "@/hooks/usePlacesSuggestions";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -48,7 +49,7 @@ type CheckoutPhase = "lead" | "checkout";
 
 const TOTAL_STEPS = 6; // restaurante, web, dominio, resumen, contacto, pago
 
-const INPUT_FOOTER_STEPS = new Set<StepId>(["restaurante", "tieneWebUrl", "elegirDominio"]);
+const assistantInputClass = "text-base md:text-base";
 
 function uid() {
   return Math.random().toString(36).slice(2, 11);
@@ -104,8 +105,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("lead");
   const [pendingAltaId, setPendingAltaId] = useState<string | null>(null);
   const [contactFormState, setContactFormState] = useState({ valid: false, submitting: false });
-  const [footerInputFocused, setFooterInputFocused] = useState(false);
-  const [footerHeight, setFooterHeight] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -125,22 +124,8 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const createCheckoutFn = useServerFn(createCheckout);
   const validateWhatsappFn = useServerFn(validateWhatsapp);
   const checkoutScenario = getCheckoutScenario(alta);
-  const { keyboardInset, viewportHeight, viewportOffsetTop } = useVisualViewport();
-  const isMobile = useIsMobile();
+  const keyboardInset = useKeyboardInset();
   const isCheckoutMode = step === "resumen" || step === "contacto";
-  const isInputFooterStep = INPUT_FOOTER_STEPS.has(step);
-  const collapseChatForKeyboard =
-    isInputFooterStep && (keyboardInset > 0 || footerInputFocused);
-  const pinShellHeight = keyboardInset > 0 || footerInputFocused;
-  const pinFooter = isMobile && footerInputFocused && isInputFooterStep;
-
-  const shellStyle = pinShellHeight
-    ? {
-        height: viewportHeight,
-        transform:
-          viewportOffsetTop > 0 ? `translateY(${viewportOffsetTop}px)` : undefined,
-      }
-    : undefined;
 
   const headerSubtitle =
     step === "resumen"
@@ -272,72 +257,9 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // Auto-scroll al final cuando cambian mensajes, paso o altura del footer
   useEffect(() => {
     scrollToBottom();
   }, [messages, botTyping, step, scrollToBottom]);
-
-  useEffect(() => {
-    const footer = footerRef.current;
-    if (!footer) return;
-
-    const ro = new ResizeObserver(() => scrollToBottom("instant"));
-    ro.observe(footer);
-    return () => ro.disconnect();
-  }, [scrollToBottom]);
-
-  useEffect(() => {
-    if (!isInputFooterStep) {
-      setFooterInputFocused(false);
-    }
-  }, [isInputFooterStep]);
-
-  useEffect(() => {
-    const footer = footerRef.current;
-    if (!footer || !isInputFooterStep) return;
-
-    function onFocusIn(e: FocusEvent) {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        setFooterInputFocused(true);
-      }
-    }
-
-    function onFocusOut() {
-      window.setTimeout(() => {
-        const active = document.activeElement;
-        if (!footer?.contains(active)) {
-          setFooterInputFocused(false);
-        }
-      }, 100);
-    }
-
-    footer.addEventListener("focusin", onFocusIn);
-    footer.addEventListener("focusout", onFocusOut);
-    return () => {
-      footer.removeEventListener("focusin", onFocusIn);
-      footer.removeEventListener("focusout", onFocusOut);
-    };
-  }, [isInputFooterStep, step]);
-
-  useEffect(() => {
-    const footer = footerRef.current;
-    if (!footer || !pinFooter) {
-      setFooterHeight(0);
-      return;
-    }
-
-    function measure() {
-      setFooterHeight(footer?.offsetHeight ?? 0);
-    }
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(footer);
-    return () => ro.disconnect();
-  }, [pinFooter, step]);
 
   function pushUser(text: string) {
     setMessages((m) => [...m, { id: uid(), role: "user", kind: "text", text }]);
@@ -360,10 +282,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const stepIndex = stepIndexFor(step);
 
   return (
-    <div
-      className={cn("flex flex-col overflow-hidden", !pinShellHeight && "h-dvh")}
-      style={shellStyle}
-    >
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Header */}
       <header className="safe-area-top z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
         <div className="container-narrow flex items-center justify-between py-3">
@@ -460,12 +379,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         <>
           <main
             ref={scrollRef}
-            className={cn(
-              "container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6",
-              collapseChatForKeyboard && "max-h-0 min-h-0 overflow-hidden py-0",
-            )}
-            style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
-            aria-hidden={collapseChatForKeyboard}
+            className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
           >
             {messages.map((m) => (
               <ChatMessage key={m.id} message={m} />
@@ -474,30 +388,17 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
             <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
           </main>
 
-          {pinFooter && footerHeight > 0 ? (
-            <div aria-hidden className="shrink-0" style={{ height: footerHeight }} />
-          ) : null}
-
           <footer
             ref={footerRef}
-            className={cn(
-              "safe-area-bottom border-t border-border/60",
-              pinFooter
-                ? "fixed inset-x-0 bottom-0 z-40 bg-white"
-                : "shrink-0 bg-white/80 backdrop-blur",
-            )}
+            className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/95 backdrop-blur"
             style={{
               transform:
-                pinFooter && viewportOffsetTop > 0
-                  ? `translateY(${viewportOffsetTop}px)`
-                  : undefined,
-              paddingBottom: keyboardInset > 0 ? keyboardInset : undefined,
+                keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
             }}
           >
             <div className="container-narrow py-4">
               {step === "restaurante" && (
                 <StepRestaurante
-                  onFocusInput={scrollInputIntoView}
                   onPick={(r) => {
                     setAlta((a) => ({
                       ...a,
@@ -549,7 +450,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
               {step === "tieneWebUrl" && (
                 <StepUrl
-                  onFocusInput={scrollInputIntoView}
                   onSubmit={(url) => {
                     pushUser(url);
                     setAlta((a) => ({ ...a, existing_website_url: url }));
@@ -600,7 +500,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
               {step === "elegirDominio" && (
                 <StepElegirDominio
-                  onFocusInput={scrollInputIntoView}
                   onAvailable={(domain, price) => {
                     pushUser(domain);
                     setAlta((a) => ({
@@ -681,46 +580,25 @@ function StepRestaurante({
   onPick,
   onManual,
   search,
-  onFocusInput,
 }: {
   onPick: (r: GmbResult) => void;
   onManual: (name: string, address: string) => void;
   search: (args: { data: { query: string } }) => Promise<{ results: GmbResult[] }>;
-  onFocusInput?: (el: HTMLElement) => void;
 }) {
+  const listId = useId();
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<GmbResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
   const [mName, setMName] = useState("");
   const [mAddress, setMAddress] = useState("");
 
-  useEffect(() => {
-    if (manual) return;
-    if (q.trim().length < 2) {
-      setResults([]);
-      setSearchError(null);
-      return;
-    }
-    setLoading(true);
-    setSearchError(null);
-    const t = setTimeout(async () => {
-      try {
-        const r = await search({ data: { query: q.trim() } });
-        setResults(r.results);
-      } catch (e) {
-        console.error(e);
-        setResults([]);
-        setSearchError(
-          e instanceof Error ? e.message : "No se pudo buscar el restaurante. Inténtalo de nuevo.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q, manual, search]);
+  const { data, isFetching, error } = useGmbSearch(q, search);
+  const results = data?.results ?? [];
+  const searchError =
+    error instanceof Error
+      ? error.message
+      : error
+        ? "No se pudo buscar el restaurante. Inténtalo de nuevo."
+        : null;
 
   if (manual) {
     return (
@@ -735,10 +613,7 @@ function StepRestaurante({
               placeholder="Ej. Bar La Plaza"
               value={mName}
               onChange={(e) => setMName(e.target.value)}
-              onFocus={(e) => {
-                onFocusInput?.(e.currentTarget);
-                scrollInputIntoView(e.currentTarget);
-              }}
+              className={assistantInputClass}
               {...inputStepConfig.restaurantNameManual}
             />
           </div>
@@ -746,11 +621,7 @@ function StepRestaurante({
             <label htmlFor="manual-restaurant-address" className="text-xs font-medium">
               Ubicación aproximada
             </label>
-            <AddressAutocomplete
-              value={mAddress}
-              onChange={setMAddress}
-              onFocusInput={onFocusInput}
-            />
+            <AddressAutocomplete value={mAddress} onChange={setMAddress} />
           </div>
         </div>
         <div className="flex items-center justify-between gap-2">
@@ -773,57 +644,39 @@ function StepRestaurante({
   }
 
   const searchAttrs = inputStepConfig.restaurantSearch;
+  const showSuggestions = q.trim().length >= 3;
 
   return (
     <div className="space-y-2">
-      <KeyboardAwareField
-        suggestionsOpen={!loading && results.length > 0}
-        suggestions={
-          <ul>
-            {results.map((r) => (
-              <li key={r.place_id}>
-                <button
-                  type="button"
-                  onClick={() => onPick(r)}
-                  className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-3 py-3 text-left transition last:border-0 hover:bg-muted"
-                >
-                  <span className="text-sm font-medium">{r.name}</span>
-                  <span className="min-w-0 break-words text-xs text-muted-foreground">{r.address}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        }
-      >
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Busca tu restaurante"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setSearchError(null);
-            }}
-            onFocus={(e) => {
-              onFocusInput?.(e.currentTarget);
-              scrollInputIntoView(e.currentTarget);
-            }}
-            className="pl-9"
-            {...searchAttrs}
-          />
-        </div>
-      </KeyboardAwareField>
-
-      {loading && (
-        <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Buscando…
-        </div>
+      {showSuggestions && (
+        <SuggestionChips
+          listId={listId}
+          variant="footer"
+          items={results.map((r) => ({
+            id: r.place_id,
+            primary: r.name,
+            secondary: r.address,
+          }))}
+          loading={isFetching}
+          error={searchError}
+          onSelect={(placeId) => {
+            const picked = results.find((r) => r.place_id === placeId);
+            if (picked) onPick(picked);
+          }}
+        />
       )}
-
-      {searchError && (
-        <p className="px-2 text-xs text-destructive">{searchError}</p>
-      )}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Busca tu restaurante"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className={cn("pl-9", assistantInputClass)}
+          aria-autocomplete="list"
+          aria-controls={results.length > 0 ? listId : undefined}
+          {...searchAttrs}
+        />
+      </div>
 
       <button
         type="button"
@@ -858,10 +711,8 @@ function ChoiceRow({ options }: { options: { label: string; onClick: () => void 
 
 function StepUrl({
   onSubmit,
-  onFocusInput,
 }: {
   onSubmit: (url: string) => void;
-  onFocusInput?: (el: HTMLElement) => void;
 }) {
   const [url, setUrl] = useState("");
   const trimmed = url.trim();
@@ -887,11 +738,7 @@ function StepUrl({
             placeholder="https://turestaurante.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            onFocus={(e) => {
-              onFocusInput?.(e.currentTarget);
-              scrollInputIntoView(e.currentTarget);
-            }}
-            className="min-w-0 flex-1"
+            className={cn("min-w-0 flex-1", assistantInputClass)}
             aria-invalid={showHint}
             aria-describedby={showHint ? "website-url-hint" : undefined}
             {...inputStepConfig.websiteUrl}
@@ -926,7 +773,6 @@ function StepElegirDominio({
   onAvailable,
   onSkip,
   checkDomainFn,
-  onFocusInput,
 }: {
   onAvailable: (domain: string, price: number) => void;
   onSkip: () => void;
@@ -934,7 +780,6 @@ function StepElegirDominio({
     | { available: true; price: number }
     | { available: false; alternatives: Array<{ domain: string; price: number }> }
   >;
-  onFocusInput?: (el: HTMLElement) => void;
 }) {
   const [domain, setDomain] = useState("");
   const [loading, setLoading] = useState(false);
@@ -983,10 +828,7 @@ function StepElegirDominio({
             placeholder="turestaurante.es"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
-            onFocus={(e) => {
-              onFocusInput?.(e.currentTarget);
-              scrollInputIntoView(e.currentTarget);
-            }}
+            className={assistantInputClass}
             {...inputStepConfig.domain}
           />
         </KeyboardAwareField>
@@ -1178,6 +1020,7 @@ function StepContacto({
               scrollInputIntoView(e.currentTarget);
             }}
             disabled={submitting}
+            className={assistantInputClass}
             {...inputStepConfig.contactName}
           />
         </div>
@@ -1195,6 +1038,7 @@ function StepContacto({
               scrollInputIntoView(e.currentTarget);
             }}
             disabled={submitting}
+            className={assistantInputClass}
             {...inputStepConfig.contactWhatsapp}
           />
           <p className="text-xs text-muted-foreground">

@@ -66,6 +66,7 @@ export function CheckoutLayout({
   const [trialOpen, setTrialOpen] = useState(false);
   const isContacto = step === "contacto";
   const allowScroll = keyboardInset > 0 || trialOpen || isContacto;
+  const footerLift = keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined;
 
   const title =
     step === "resumen"
@@ -85,7 +86,10 @@ export function CheckoutLayout({
           allowScroll ? "overflow-y-auto" : "overflow-hidden",
           isContacto && "pb-2",
         )}
-        style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+        style={{
+          paddingBottom:
+            keyboardInset > 0 ? keyboardInset + (footer ? 8 : 0) : undefined,
+        }}
       >
         <div className="hidden sm:block">
           <h2 className="font-display text-lg font-medium tracking-tight">{title}</h2>
@@ -116,7 +120,7 @@ export function CheckoutLayout({
       {footer ? (
         <div
           className="safe-area-bottom w-full shrink-0 overflow-x-clip border-t border-border/60 bg-white/80 backdrop-blur"
-          style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+          style={{ transform: footerLift }}
         >
           <div className="container-narrow w-full space-y-1.5 py-3">{footer}</div>
         </div>
@@ -125,7 +129,7 @@ export function CheckoutLayout({
       {footerRibbon ? (
         <div
           className="safe-area-bottom w-full shrink-0 overflow-x-hidden bg-neutral-950"
-          style={{ paddingBottom: keyboardInset > 0 ? keyboardInset : undefined }}
+          style={{ transform: footerLift }}
         >
           {footerRibbon}
         </div>

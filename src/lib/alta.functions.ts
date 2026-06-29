@@ -49,7 +49,7 @@ export const validateWhatsapp = createServerFn({ method: "POST" })
 // gmb-search: busca restaurantes en Google Business Profile / Places.
 // ─────────────────────────────────────────────────────────────────────────────
 export const gmbSearch = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ query: z.string().min(1) }).parse(input))
+  .validator((input: unknown) => z.object({ query: z.string().min(3) }).parse(input))
   .handler(async ({ data }) => {
     if (!hasGooglePlaces()) {
       throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
@@ -66,7 +66,7 @@ export const addressAutocomplete = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
       .object({
-        query: z.string().min(2),
+        query: z.string().min(3),
         session_token: z.string().optional(),
       })
       .parse(input),

@@ -11,8 +11,9 @@ const tslibEsm = require.resolve("tslib/tslib.es6.mjs");
 
 export default defineConfig({
   server: {
+    host: true,
     port: 8080,
-    strictPort: false,
+    strictPort: true,
   },
   resolve: {
     alias: {
