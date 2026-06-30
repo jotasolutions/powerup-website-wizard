@@ -1,23 +1,39 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, ArrowLeft, Check, X, MessageCircle } from "lucide-react";
+import { Loader2, Search, ArrowLeft, Check, MessageCircle } from "lucide-react";
 import { ChatBubble, TypingBubble } from "./ChatBubble";
+import { ChoiceRow } from "./ChoiceRow";
+import { PlaceFoundPanel } from "./PlaceFoundPanel";
+import { PlaceLinksPanel } from "./PlaceLinksPanel";
 import { ResumenPedido } from "./ResumenPedido";
+import { ContactoCheckoutFooter } from "./ContactoCheckoutFooter";
 import { CheckoutLayout } from "./CheckoutLayout";
 import { TrustStrip } from "./TrustStrip";
 import { ResumenCtaButton } from "./ResumenCtaButton";
+import { StepElegirDominio } from "./StepElegirDominio";
 import { AddressAutocomplete } from "./AddressAutocomplete";
 import { SuggestionChips } from "./SuggestionChips";
 import { formatBotText } from "./formatBotText";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
 import {
-  formatEUR,
   generarSubdominio,
-  FEE_GESTION_WEB_PROPIA_EUR,
+  formatEUR,
 } from "@/lib/alta-config";
+import { buildAltaPayload } from "@/lib/alta-payload";
+import {
+  buildFallbackPlaceProfileFromApiError,
+  buildFallbackPlaceProfileManual,
+} from "@/lib/alta-enrichment-fallback";
+import { resolvePlaceGapMessage } from "@/lib/place-gap";
+import { resolvePowerUpUpgradeMessage } from "@/lib/place-gap.messages";
+import {
+  detectPowerUpFromProfile,
+  resolvePowerUpCustomerForFlow,
+} from "@/lib/powerup-customer";
 import {
   clearAltaDraft,
   getCheckoutScenario,
@@ -26,20 +42,44 @@ import {
   loadAltaDraft,
   saveAltaDraft,
 } from "@/lib/checkout-scenario";
-import { gmbSearch, checkDomain, saveAlta, createCheckout, validateWhatsapp } from "@/lib/alta.functions";
+import {
+  gmbSearch,
+  enrichPlace,
+  saveAlta,
+  createCheckout,
+  validateWhatsapp,
+  checkDomain,
+} from "@/lib/alta.functions";
+import {
+  ALTA_MANUAL_NAME_LABEL,
+  ALTA_MANUAL_NAME_PLACEHOLDER,
+  ALTA_NOT_IN_LIST_LINK,
+  ALTA_REVIEW_PLACE_LABEL,
+  ALTA_WRONG_PLACE_LABEL,
+  ALTA_SEARCH_BOT_PROMPT,
+  ALTA_SEARCH_PLACEHOLDER,
+  ALTA_WELCOME,
+  ALTA_DOMAIN_BOT_PROMPT,
+  ALTA_CONTACT_REASSURANCE_CHIPS,
+  formatConfirmInfoPrompt,
+  formatEncontradoBotPrompt,
+  formatEncontradoLoadingLabel,
+} from "@/lib/alta-copy";
 import { redirectToCheckout } from "@/lib/checkout-redirect";
 import { inputStepConfig } from "@/lib/input-step-config";
-import { scrollInputIntoView, useKeyboardInset } from "@/hooks/useKeyboardInset";
-import { useGmbSearch } from "@/hooks/usePlacesSuggestions";
+import { scrollInputIntoView, useElementHeight, useVisualViewport } from "@/hooks/useKeyboardInset";
+import { useRestaurantSearch } from "@/hooks/useRestaurantSearch";
+import { usePlaceEnrichment } from "@/hooks/usePlaceEnrichment";
+import { useDomainPrefetch } from "@/hooks/useDomainPrefetch";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type StepId =
   | "restaurante"
-  | "tieneWeb"
-  | "tieneWebUrl"
-  | "dominioCustom"
+  | "encontrado"
+  | "confirmarInfo"
+  | "brecha"
   | "elegirDominio"
   | "resumen"
   | "contacto"
@@ -47,7 +87,7 @@ type StepId =
 
 type CheckoutPhase = "lead" | "checkout";
 
-const TOTAL_STEPS = 6; // restaurante, web, dominio, resumen, contacto, pago
+const TOTAL_STEPS = 5; // restaurante, enrichment, resumen, contacto, pago
 
 const assistantInputClass = "text-base md:text-base";
 
@@ -60,36 +100,9 @@ function checkoutErrorMessage(error: unknown): string {
   return `Ha habido un problema al continuar al pago: ${detail}`;
 }
 
-function buildAltaPayload(alta: AltaState, contact_name: string, whatsapp: string) {
-  const concept = alta.has_existing_website
-    ? ("gestion" as const)
-    : alta.domain_is_custom
-      ? ("dominio" as const)
-      : null;
-  const amount = alta.has_existing_website
-    ? FEE_GESTION_WEB_PROPIA_EUR
-    : alta.domain_is_custom
-      ? (alta.domain_price ?? 0)
-      : null;
-
-  return {
-    restaurant_name: alta.restaurant_name,
-    restaurant_address: alta.restaurant_address || null,
-    gmb_place_id: alta.gmb_place_id,
-    has_existing_website: !!alta.has_existing_website,
-    existing_website_url: alta.has_existing_website ? alta.existing_website_url : null,
-    wants_custom_domain: !!alta.wants_custom_domain,
-    domain: alta.domain || generarSubdominio(alta.restaurant_name),
-    domain_is_custom: alta.domain_is_custom,
-    onetime_fee_concept: concept,
-    onetime_fee_amount: amount,
-    contact_name,
-    whatsapp,
-  };
-}
-
 export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel?: boolean }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [alta, setAlta] = useState<AltaState>(initialAlta);
   const [step, setStep] = useState<StepId>("restaurante");
   const [history, setHistory] = useState<StepId[]>([]);
@@ -98,17 +111,22 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       id: uid(),
       role: "bot",
       kind: "text",
-      text: "Hola, soy el asistente de PowerUp Menu. Vamos a montar la página web de tu restaurante en unos pasos. ¿Empezamos?",
+      text: ALTA_WELCOME,
     },
   ]);
   const [botTyping, setBotTyping] = useState(false);
   const [checkoutPhase, setCheckoutPhase] = useState<CheckoutPhase>("lead");
   const [pendingAltaId, setPendingAltaId] = useState<string | null>(null);
-  const [contactFormState, setContactFormState] = useState({ valid: false, submitting: false });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
+  const footerChromeRef = useRef<HTMLDivElement>(null);
+  const restaurantSearchInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
+  const enrichmentErrorToastedRef = useRef(false);
+  const restaurantListId = useId();
+  const [restaurantManual, setRestaurantManual] = useState(false);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     requestAnimationFrame(() => {
@@ -119,13 +137,38 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   }, []);
 
   const gmbSearchFn = useServerFn(gmbSearch);
+  const {
+    query: restaurantQuery,
+    setQuery: setRestaurantQuery,
+    results: restaurantResults,
+    isFetching: restaurantSearchFetching,
+    searchError: restaurantSearchError,
+    showSuggestions: showRestaurantSuggestions,
+    reset: resetRestaurantSearch,
+  } = useRestaurantSearch(gmbSearchFn);
+  const enrichPlaceFn = useServerFn(enrichPlace);
   const checkDomainFn = useServerFn(checkDomain);
   const saveAltaFn = useServerFn(saveAlta);
   const createCheckoutFn = useServerFn(createCheckout);
   const validateWhatsappFn = useServerFn(validateWhatsapp);
+  const enrichmentQuery = usePlaceEnrichment(
+    alta.gmb_place_id,
+    alta.restaurant_name,
+    enrichPlaceFn,
+  );
+  // Prefetch en paralelo al enrichment; resultado vive en React Query (queryKey por nombre).
+  const domainPrefetch = useDomainPrefetch(alta.restaurant_name, checkDomainFn);
   const checkoutScenario = getCheckoutScenario(alta);
-  const keyboardInset = useKeyboardInset();
+  const { keyboardInset, viewportHeight } = useVisualViewport();
+  const headerHeight = useElementHeight(headerRef);
+  const footerChromeHeight = useElementHeight(footerChromeRef);
   const isCheckoutMode = step === "resumen" || step === "contacto";
+
+  const suggestionsMaxHeight = useMemo(() => {
+    if (viewportHeight <= 0) return 240;
+    const available = viewportHeight - headerHeight - footerChromeHeight - 24;
+    return Math.max(120, Math.min(available, 360));
+  }, [viewportHeight, headerHeight, footerChromeHeight]);
 
   const headerSubtitle =
     step === "resumen"
@@ -134,7 +177,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         ? "Último paso"
         : "Alta guiada";
 
-  async function handleContactSubmit(contact_name: string, whatsapp: string) {
+  async function handleContactSubmit(
+    contact_name: string,
+    whatsapp: string,
+    meta?: { consent_user_agent: string },
+  ) {
     void validateWhatsappFn({ data: { phone: whatsapp } }).catch(() => {
       toast.warning("No pudimos verificar el WhatsApp ahora. Lo revisaremos al contactarte.");
     });
@@ -148,7 +195,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     let altaId = pendingAltaId;
 
     try {
-      const altaPayload = buildAltaPayload(alta, contact_name, whatsapp);
+      const altaPayload = buildAltaPayload(alta, {
+        contact_name,
+        whatsapp,
+        consent_user_agent: meta?.consent_user_agent,
+      });
 
       if (!altaId) {
         const saved = await saveAltaFn({ data: altaPayload });
@@ -235,6 +286,71 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recoverFromCancel]);
 
+  // Sincronizar enrichPlace → AltaState (snapshot para pasos y draft; no gate del enabled).
+  useEffect(() => {
+    if (!alta.gmb_place_id) return;
+
+    if (enrichmentQuery.isPending) {
+      setAlta((a) =>
+        a.enrichment_status === "loading" ? a : { ...a, enrichment_status: "loading" },
+      );
+      return;
+    }
+
+    if (enrichmentQuery.isSuccess && enrichmentQuery.data) {
+      const profile = enrichmentQuery.data.profile;
+      const nextStatus = profile.enrichment_partial ? "degraded" : "ready";
+      const powerUp = detectPowerUpFromProfile(profile);
+      setAlta((a) => {
+        const nextPowerUp = powerUp.status === "yes" ? "yes" : "no";
+        if (
+          a.place_profile?.place_id === profile.place_id &&
+          a.enrichment_status === nextStatus &&
+          a.place_profile.enrichment_partial === profile.enrichment_partial &&
+          a.powerup_customer === nextPowerUp
+        ) {
+          return a;
+        }
+        return {
+          ...a,
+          place_profile: profile,
+          enrichment_status: nextStatus,
+          powerup_customer: nextPowerUp,
+          domain: powerUp.domain ?? a.domain,
+        };
+      });
+      return;
+    }
+
+    if (enrichmentQuery.isError) {
+      setAlta((a) => {
+        if (
+          a.enrichment_status === "degraded" &&
+          a.place_profile?.missing_fields.includes("fetch_failed")
+        ) {
+          return a;
+        }
+        return {
+          ...a,
+          place_profile: buildFallbackPlaceProfileFromApiError(a),
+          enrichment_status: "degraded",
+        };
+      });
+      if (!enrichmentErrorToastedRef.current) {
+        enrichmentErrorToastedRef.current = true;
+        toast.warning(
+          "No pudimos cargar toda la ficha de Google. Puedes continuar igualmente.",
+        );
+      }
+    }
+  }, [
+    alta.gmb_place_id,
+    enrichmentQuery.isPending,
+    enrichmentQuery.isSuccess,
+    enrichmentQuery.isError,
+    enrichmentQuery.data,
+  ]);
+
   // Cuando entras en un paso por primera vez, el bot añade su mensaje al chat.
   useEffect(() => {
     if (promptedStepsRef.current.has(step)) return;
@@ -261,6 +377,29 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     scrollToBottom();
   }, [messages, botTyping, step, scrollToBottom]);
 
+  useEffect(() => {
+    if (step !== "restaurante") {
+      resetRestaurantSearch();
+      setRestaurantManual(false);
+    }
+  }, [step, resetRestaurantSearch]);
+
+  function handleRestaurantPick(picked: GmbResult) {
+    setAlta((a) => ({
+      ...a,
+      restaurant_name: picked.name,
+      restaurant_address: picked.address,
+      gmb_place_id: picked.place_id,
+      domain: a.domain || generarSubdominio(picked.name),
+      place_profile: null,
+      enrichment_status: "idle",
+      powerup_customer: "unknown",
+    }));
+    enrichmentErrorToastedRef.current = false;
+    pushUser(picked.name);
+    go("encontrado");
+  }
+
   function pushUser(text: string) {
     setMessages((m) => [...m, { id: uid(), role: "user", kind: "text", text }]);
   }
@@ -279,12 +418,38 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     });
   }
 
+  function returnToRestaurantSearch(userLabel: string) {
+    pushUser(userLabel);
+    resetRestaurantSearch();
+    setRestaurantManual(false);
+    enrichmentErrorToastedRef.current = false;
+    promptedStepsRef.current.delete("encontrado");
+    promptedStepsRef.current.delete("confirmarInfo");
+    promptedStepsRef.current.delete("brecha");
+    // Limpieza de memoria; la corrección ante cambio de nombre viene de la queryKey.
+    void queryClient.removeQueries({ queryKey: ["domain-prefetch"] });
+    setAlta((a) => ({
+      ...a,
+      restaurant_name: "",
+      restaurant_address: "",
+      gmb_place_id: null,
+      place_profile: null,
+      enrichment_status: "idle",
+      powerup_customer: "unknown",
+    }));
+    setHistory([]);
+    setStep("restaurante");
+  }
+
   const stepIndex = stepIndexFor(step);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       {/* Header */}
-      <header className="safe-area-top z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur">
+      <header
+        ref={headerRef}
+        className="safe-area-top z-20 shrink-0 border-b border-border/60 bg-white/70 backdrop-blur"
+      >
         <div className="container-narrow flex items-center justify-between py-3">
           <div className="flex items-center gap-2">
             {history.length > 0 && step !== "enviando" ? (
@@ -324,164 +489,229 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
           {checkoutPhase === "lead" ? "Guardando tu contacto…" : "Preparando tu pago seguro…"}
         </div>
       ) : isCheckoutMode ? (
-        <CheckoutLayout
-          alta={alta}
-          step={step}
-          keyboardInset={keyboardInset}
-          mainFooter={
-            step === "resumen" ? (
-              <ResumenCtaButton onClick={() => go("contacto")}>
-                {getResumenCta(checkoutScenario)}
-              </ResumenCtaButton>
-            ) : undefined
-          }
-          footer={
-            step === "contacto" ? (
-              <>
-                <Button
-                  form="contacto-form"
-                  type="submit"
-                  disabled={!contactFormState.valid || contactFormState.submitting}
-                  className="w-full"
-                  size="lg"
-                >
-                  {contactFormState.submitting ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="mr-1.5 h-4 w-4" />
-                  )}
-                  {contactFormState.submitting
-                    ? "Guardando tu contacto…"
-                    : getContactoCta(checkoutScenario)}
-                </Button>
-                <p className="text-center text-[10px] text-muted-foreground">
-                  Después solo guardas tu tarjeta de forma segura (Stripe) para activar la prueba
-                  gratis.
-                </p>
-              </>
-            ) : undefined
-          }
-          footerRibbon={step === "resumen" ? <TrustStrip /> : undefined}
-        >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <CheckoutLayout
+            alta={alta}
+            step={step}
+            keyboardInset={keyboardInset}
+            mainFooter={
+              step === "resumen" ? (
+                <ResumenCtaButton alta={alta} onClick={() => go("contacto")}>
+                  {getResumenCta(checkoutScenario, alta)}
+                </ResumenCtaButton>
+              ) : undefined
+            }
+            footerRibbon={step === "resumen" ? <TrustStrip /> : undefined}
+          />
           {step === "contacto" ? (
-            <StepContacto
+            <ContactoCheckoutFooter
               alta={alta}
-              layout="checkout"
               formId="contacto-form"
               submitCta={getContactoCta(checkoutScenario)}
               onSubmit={handleContactSubmit}
               onFocusInput={scrollInputIntoView}
-              onFormStateChange={setContactFormState}
+              keyboardInset={keyboardInset}
             />
           ) : null}
-        </CheckoutLayout>
+        </div>
       ) : (
         <>
           <main
             ref={scrollRef}
-            className="container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6"
+            className={cn(
+              "container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6",
+              step === "restaurante" && "pb-2",
+            )}
           >
             {messages.map((m) => (
               <ChatMessage key={m.id} message={m} />
             ))}
             {botTyping && <TypingBubble />}
+            {alta.enrichment_status === "loading" && step === "confirmarInfo" && (
+              <TypingBubble />
+            )}
+            {step === "encontrado" && (
+              <PlaceFoundPanel
+                profile={alta.place_profile}
+                loading={alta.enrichment_status === "loading"}
+              />
+            )}
+            {step === "confirmarInfo" && alta.place_profile && (
+              <PlaceLinksPanel profile={alta.place_profile} />
+            )}
+            {step === "brecha" && alta.powerup_customer === "yes" && (
+              <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5 text-xs text-muted-foreground">
+                Usaremos tu carta en{" "}
+                <span className="font-medium text-foreground">
+                  {alta.domain || generarSubdominio(alta.restaurant_name)}
+                </span>{" "}
+                y la conectamos con tu página web.
+              </div>
+            )}
+            {step === "brecha" && alta.powerup_customer !== "yes" && (
+              <div className="rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5 text-xs text-muted-foreground">
+                Por defecto te creamos una dirección gratis tipo{" "}
+                <span className="font-medium text-foreground">
+                  {generarSubdominio(alta.restaurant_name)}
+                </span>
+                .
+              </div>
+            )}
             <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
           </main>
 
           <footer
             ref={footerRef}
-            className="safe-area-bottom shrink-0 border-t border-border/60 bg-white/95 backdrop-blur"
+            className={cn(
+              "safe-area-bottom shrink-0",
+              step === "restaurante"
+                ? "bg-transparent"
+                : "border-t border-border/60 bg-white/95 backdrop-blur",
+            )}
             style={{
               transform:
                 keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
             }}
           >
-            <div className="container-narrow py-4">
+            <div className={cn("container-narrow", step === "restaurante" ? "pb-4 pt-2" : "py-4")}>
               {step === "restaurante" && (
                 <StepRestaurante
-                  onPick={(r) => {
-                    setAlta((a) => ({
-                      ...a,
-                      restaurant_name: r.name,
-                      restaurant_address: r.address,
-                      gmb_place_id: r.place_id,
-                      domain: a.domain || generarSubdominio(r.name),
-                    }));
-                    pushUser(r.name);
-                    go("tieneWeb");
-                  }}
+                  query={restaurantQuery}
+                  setQuery={setRestaurantQuery}
+                  listId={restaurantListId}
+                  results={restaurantResults}
+                  isFetching={restaurantSearchFetching}
+                  searchError={restaurantSearchError}
+                  showSuggestions={showRestaurantSuggestions}
+                  suggestionsMaxHeight={suggestionsMaxHeight}
+                  searchInputRef={restaurantSearchInputRef}
+                  footerChromeRef={footerChromeRef}
+                  onPick={handleRestaurantPick}
+                  manual={restaurantManual}
+                  setManual={setRestaurantManual}
                   onManual={(name, address) => {
-                    setAlta((a) => ({
-                      ...a,
+                    const base = {
                       restaurant_name: name,
                       restaurant_address: address,
-                      gmb_place_id: null,
-                      domain: a.domain || generarSubdominio(name),
+                      gmb_place_id: null as string | null,
+                      domain: generarSubdominio(name),
+                    };
+                    setAlta((a) => ({
+                      ...a,
+                      ...base,
+                      place_profile: buildFallbackPlaceProfileManual({ ...a, ...base }),
+                      enrichment_status: "degraded",
+                      powerup_customer: "unknown",
                     }));
                     pushUser(name);
-                    go("tieneWeb");
+                    go("encontrado");
                   }}
-                  search={gmbSearchFn}
                 />
               )}
 
-              {step === "tieneWeb" && (
+              {step === "encontrado" && (
+                <div className="space-y-2">
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    disabled={alta.enrichment_status === "loading"}
+                    onClick={() => {
+                      pushUser("Sí, es este");
+                      go("confirmarInfo");
+                    }}
+                  >
+                    {alta.enrichment_status === "loading" ? (
+                      <>
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        {formatEncontradoLoadingLabel()}
+                      </>
+                    ) : (
+                      "Sí, es este"
+                    )}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => returnToRestaurantSearch(ALTA_WRONG_PLACE_LABEL)}
+                    className="w-full py-1 text-center text-xs text-muted-foreground underline underline-offset-4 transition hover:text-foreground"
+                  >
+                    {ALTA_WRONG_PLACE_LABEL}
+                  </button>
+                </div>
+              )}
+
+              {step === "confirmarInfo" && alta.place_profile && (
+                <div className="space-y-2">
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={() => {
+                      pushUser("Sí, es correcto");
+                      setAlta((a) => ({
+                        ...a,
+                        powerup_customer: resolvePowerUpCustomerForFlow(
+                          a.powerup_customer,
+                          a.place_profile,
+                        ),
+                      }));
+                      go("brecha");
+                    }}
+                  >
+                    Confirmar
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pushUser(ALTA_REVIEW_PLACE_LABEL);
+                      back();
+                    }}
+                    className="w-full py-1 text-center text-xs text-muted-foreground underline underline-offset-4 transition hover:text-foreground"
+                  >
+                    {ALTA_REVIEW_PLACE_LABEL}
+                  </button>
+                </div>
+              )}
+
+              {step === "brecha" && alta.powerup_customer === "yes" && (
                 <ChoiceRow
-                  options={[
-                    {
-                      label: "Sí, ya tengo web",
-                      onClick: () => {
-                        pushUser("Sí, ya tengo web");
-                        setAlta((a) => ({ ...a, has_existing_website: true }));
-                        go("tieneWebUrl");
-                      },
-                    },
-                    {
-                      label: "No, todavía no",
-                      onClick: () => {
-                        pushUser("No, todavía no");
-                        setAlta((a) => ({ ...a, has_existing_website: false }));
-                        go("dominioCustom");
-                      },
-                    },
-                  ]}
-                />
-              )}
-
-              {step === "tieneWebUrl" && (
-                <StepUrl
-                  onSubmit={(url) => {
-                    pushUser(url);
-                    setAlta((a) => ({ ...a, existing_website_url: url }));
-                    go("resumen");
-                  }}
-                />
-              )}
-
-              {step === "dominioCustom" && (
-                <>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Por defecto te creamos una dirección gratis tipo{" "}
-                    <span className="font-medium text-foreground">
-                      {generarSubdominio(alta.restaurant_name)}
-                    </span>
-                    . Un dominio personalizado sería algo como{" "}
-                    <span className="font-medium text-foreground">turestaurante.es</span>.
-                  </p>
-                  <ChoiceRow
                     options={[
                       {
-                        label: "Sí, dominio personalizado",
+                        label: "Activar página web con mi carta",
                         onClick: () => {
-                          pushUser("Sí, quiero un dominio personalizado");
-                          setAlta((a) => ({ ...a, wants_custom_domain: true }));
-                          go("elegirDominio");
+                          pushUser("Activar página web con mi carta");
+                          setAlta((a) => ({
+                            ...a,
+                            wants_custom_domain: false,
+                            domain: a.domain || generarSubdominio(a.restaurant_name),
+                            domain_is_custom: false,
+                            domain_price: null,
+                          }));
+                          go("resumen");
                         },
                       },
                       {
-                        label: "No, usa el gratis",
+                        label: "Quiero dominio personalizado",
                         onClick: () => {
-                          pushUser("No, usa el gratis");
+                          pushUser("Quiero dominio personalizado");
+                          setAlta((a) => ({
+                            ...a,
+                            wants_custom_domain: true,
+                            domain_is_custom: false,
+                            domain_price: null,
+                          }));
+                          go("elegirDominio");
+                        },
+                      },
+                    ]}
+                />
+              )}
+
+              {step === "brecha" && alta.powerup_customer !== "yes" && (
+                <ChoiceRow
+                    options={[
+                      {
+                        label: "Usar dirección gratis",
+                        onClick: () => {
+                          pushUser("Usar dirección gratis");
                           const sub = generarSubdominio(alta.restaurant_name);
                           setAlta((a) => ({
                             ...a,
@@ -493,13 +723,26 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                           go("resumen");
                         },
                       },
+                      {
+                        label: "Quiero dominio personalizado",
+                        onClick: () => {
+                          pushUser("Quiero dominio personalizado");
+                          setAlta((a) => ({
+                            ...a,
+                            wants_custom_domain: true,
+                            domain_is_custom: false,
+                            domain_price: null,
+                          }));
+                          go("elegirDominio");
+                        },
+                      },
                     ]}
-                  />
-                </>
+                />
               )}
 
               {step === "elegirDominio" && (
                 <StepElegirDominio
+                  prefetch={domainPrefetch}
                   onAvailable={(domain, price) => {
                     pushUser(domain);
                     setAlta((a) => ({
@@ -512,7 +755,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                   }}
                   onSkip={() => {
                     pushUser("Continuar sin dominio personalizado");
-                    const sub = generarSubdominio(alta.restaurant_name);
+                    const sub = domainPrefetch.freeSubdomain;
                     setAlta((a) => ({
                       ...a,
                       wants_custom_domain: false,
@@ -540,33 +783,37 @@ function stepIndexFor(s: StepId): number {
   switch (s) {
     case "restaurante":
       return 1;
-    case "tieneWeb":
-    case "tieneWebUrl":
-      return 2;
-    case "dominioCustom":
+    case "encontrado":
+    case "confirmarInfo":
+    case "brecha":
     case "elegirDominio":
-      return 3;
+      return 2;
     case "resumen":
-      return 4;
+      return 3;
     case "contacto":
-      return 5;
+      return 4;
     case "enviando":
-      return 6;
+      return 5;
   }
 }
 
-function botPromptForStep(s: StepId, _a: AltaState): string | null {
+function botPromptForStep(s: StepId, a: AltaState): string | null {
   switch (s) {
     case "restaurante":
-      return "Busca tu restaurante en Google y selecciónalo de la lista.";
-    case "tieneWeb":
-      return "¿Ya tienes página web propia?";
-    case "tieneWebUrl":
-      return "¿Cuál es la URL de tu web actual?";
-    case "dominioCustom":
-      return "¿Quieres un dominio personalizado para tu nueva web?";
+      return ALTA_SEARCH_BOT_PROMPT;
+    case "encontrado":
+      return formatEncontradoBotPrompt();
+    case "confirmarInfo":
+      return formatConfirmInfoPrompt();
+    case "brecha":
+      if (a.powerup_customer === "yes") {
+        return resolvePowerUpUpgradeMessage();
+      }
+      return a.place_profile
+        ? resolvePlaceGapMessage(a.place_profile)
+        : "Te ayudamos a tener una web conectada con tu Google y tu carta.";
     case "elegirDominio":
-      return "Escribe el dominio que te gustaría, sin «www» (ej. turestaurante.es).";
+      return ALTA_DOMAIN_BOT_PROMPT;
     case "resumen":
     case "contacto":
     case "enviando":
@@ -577,28 +824,38 @@ function botPromptForStep(s: StepId, _a: AltaState): string | null {
 // ─── Paso 1: Buscar restaurante (GMB) ───────────────────────────────────────
 
 function StepRestaurante({
+  query,
+  setQuery,
+  listId,
+  results,
+  isFetching,
+  searchError,
+  showSuggestions,
+  suggestionsMaxHeight,
+  searchInputRef,
+  footerChromeRef,
   onPick,
+  manual,
+  setManual,
   onManual,
-  search,
 }: {
+  query: string;
+  setQuery: (q: string) => void;
+  listId: string;
+  results: GmbResult[];
+  isFetching: boolean;
+  searchError: string | null;
+  showSuggestions: boolean;
+  suggestionsMaxHeight: number;
+  searchInputRef: RefObject<HTMLInputElement | null>;
+  footerChromeRef: RefObject<HTMLDivElement | null>;
   onPick: (r: GmbResult) => void;
+  manual: boolean;
+  setManual: (manual: boolean) => void;
   onManual: (name: string, address: string) => void;
-  search: (args: { data: { query: string } }) => Promise<{ results: GmbResult[] }>;
 }) {
-  const listId = useId();
-  const [q, setQ] = useState("");
-  const [manual, setManual] = useState(false);
   const [mName, setMName] = useState("");
   const [mAddress, setMAddress] = useState("");
-
-  const { data, isFetching, error } = useGmbSearch(q, search);
-  const results = data?.results ?? [];
-  const searchError =
-    error instanceof Error
-      ? error.message
-      : error
-        ? "No se pudo buscar el restaurante. Inténtalo de nuevo."
-        : null;
 
   if (manual) {
     return (
@@ -606,11 +863,11 @@ function StepRestaurante({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <label htmlFor="manual-restaurant-name" className="text-xs font-medium">
-              Nombre del restaurante
+              {ALTA_MANUAL_NAME_LABEL}
             </label>
             <Input
               id="manual-restaurant-name"
-              placeholder="Ej. Bar La Plaza"
+              placeholder={ALTA_MANUAL_NAME_PLACEHOLDER}
               value={mName}
               onChange={(e) => setMName(e.target.value)}
               className={assistantInputClass}
@@ -644,34 +901,43 @@ function StepRestaurante({
   }
 
   const searchAttrs = inputStepConfig.restaurantSearch;
-  const showSuggestions = q.trim().length >= 3;
 
   return (
-    <div className="space-y-2">
+    <div className="mx-auto w-full max-w-md space-y-2">
       {showSuggestions && (
-        <SuggestionChips
-          listId={listId}
-          variant="footer"
-          items={results.map((r) => ({
-            id: r.place_id,
-            primary: r.name,
-            secondary: r.address,
-          }))}
-          loading={isFetching}
-          error={searchError}
-          onSelect={(placeId) => {
-            const picked = results.find((r) => r.place_id === placeId);
-            if (picked) onPick(picked);
-          }}
-        />
+        <div className="overflow-hidden rounded-2xl border border-border/60 bg-bubble-bot shadow-bubble">
+          <SuggestionChips
+            listId={listId}
+            variant="anchored"
+            attached
+            maxHeight={suggestionsMaxHeight}
+            onDismissKeyboard={() => searchInputRef.current?.blur()}
+            items={results.map((r) => ({
+              id: r.place_id,
+              primary: r.name,
+              secondary: r.address,
+            }))}
+            loading={isFetching}
+            error={searchError}
+            onSelect={(placeId) => {
+              const picked = results.find((r) => r.place_id === placeId);
+              if (picked) onPick(picked);
+            }}
+          />
+        </div>
       )}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+      <div ref={footerChromeRef} className="relative">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Busca tu restaurante"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className={cn("pl-9", assistantInputClass)}
+          ref={searchInputRef}
+          placeholder={ALTA_SEARCH_PLACEHOLDER}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={cn(
+            "h-12 rounded-2xl border-input bg-background pl-10 shadow-sm focus-visible:ring-2 focus-visible:ring-primary/20",
+            assistantInputClass,
+          )}
           aria-autocomplete="list"
           aria-controls={results.length > 0 ? listId : undefined}
           {...searchAttrs}
@@ -681,222 +947,9 @@ function StepRestaurante({
       <button
         type="button"
         onClick={() => setManual(true)}
-        className="text-xs text-muted-foreground underline underline-offset-4 transition hover:text-foreground"
+        className="block w-full text-center text-xs text-muted-foreground underline underline-offset-4 transition hover:text-foreground"
       >
-        No aparece mi restaurante
-      </button>
-    </div>
-  );
-}
-
-// ─── Opciones rápidas (Sí/No) ───────────────────────────────────────────────
-
-function ChoiceRow({ options }: { options: { label: string; onClick: () => void }[] }) {
-  return (
-    <div className="flex w-full flex-col gap-2">
-      {options.map((o) => (
-        <button
-          key={o.label}
-          onClick={o.onClick}
-          className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium shadow-card transition hover:border-primary/30 hover:bg-accent active:scale-[0.98]"
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ─── Paso URL web propia ────────────────────────────────────────────────────
-
-function StepUrl({
-  onSubmit,
-}: {
-  onSubmit: (url: string) => void;
-}) {
-  const [url, setUrl] = useState("");
-  const trimmed = url.trim();
-  const valid =
-    /^https?:\/\/.+\..+/.test(trimmed) || /^[\w-]+\.[\w.-]+/.test(trimmed);
-  const showHint = trimmed.length > 0 && !valid;
-
-  return (
-    <form
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!valid) return;
-        let v = trimmed;
-        if (!/^https?:\/\//.test(v)) v = `https://${v}`;
-        onSubmit(v);
-      }}
-      className="flex flex-col gap-2"
-    >
-      <KeyboardAwareField>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input
-            placeholder="https://turestaurante.com"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            className={cn("min-w-0 flex-1", assistantInputClass)}
-            aria-invalid={showHint}
-            aria-describedby={showHint ? "website-url-hint" : undefined}
-            {...inputStepConfig.websiteUrl}
-          />
-          <Button type="submit" disabled={!valid} className="h-11 w-full shrink-0 sm:w-auto">
-            Enviar
-          </Button>
-        </div>
-      </KeyboardAwareField>
-      {showHint ? (
-        <p id="website-url-hint" className="text-xs text-destructive">
-          Escribe una URL válida, por ejemplo turestaurante.com o https://turestaurante.com
-        </p>
-      ) : null}
-    </form>
-  );
-}
-
-// ─── Paso elegir dominio ────────────────────────────────────────────────────
-
-function NamecheapBadge() {
-  return (
-    <img
-      src="/images/namecheaplogo.svg"
-      alt="Namecheap"
-      className="h-4 w-auto shrink-0 opacity-90"
-    />
-  );
-}
-
-function StepElegirDominio({
-  onAvailable,
-  onSkip,
-  checkDomainFn,
-}: {
-  onAvailable: (domain: string, price: number) => void;
-  onSkip: () => void;
-  checkDomainFn: (args: { data: { domain: string } }) => Promise<
-    | { available: true; price: number }
-    | { available: false; alternatives: Array<{ domain: string; price: number }> }
-  >;
-}) {
-  const [domain, setDomain] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [unavailableDomain, setUnavailableDomain] = useState<string | null>(null);
-  const [alternatives, setAlternatives] = useState<Array<{ domain: string; price: number }>>([]);
-  const [availableResult, setAvailableResult] = useState<{ domain: string; price: number } | null>(
-    null,
-  );
-
-  const norm = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  const valid = /^[a-z0-9-]+(\.[a-z]{2,})+$/.test(norm);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!valid) return;
-    setLoading(true);
-    setError(null);
-    setUnavailableDomain(null);
-    setAlternatives([]);
-    setAvailableResult(null);
-    try {
-      const r = await checkDomainFn({ data: { domain: norm } });
-      if (r.available) {
-        setAvailableResult({ domain: norm, price: r.price });
-      } else {
-        setUnavailableDomain(norm);
-        setAlternatives(r.alternatives.slice(0, 3));
-        if (r.alternatives.length === 0) {
-          setError(`“${norm}” no está disponible y no hemos encontrado alternativas ahora mismo.`);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      setError("No se pudo comprobar la disponibilidad. Inténtalo de nuevo.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <KeyboardAwareField className="min-w-0 flex-1">
-          <Input
-            placeholder="turestaurante.es"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            className={assistantInputClass}
-            {...inputStepConfig.domain}
-          />
-        </KeyboardAwareField>
-        <Button type="submit" disabled={!valid || loading} className="h-11 w-full shrink-0 sm:w-auto">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
-        </Button>
-      </form>
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          <X className="h-3.5 w-3.5" /> {error}
-        </div>
-      )}
-      {availableResult && (
-        <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-2 text-xs text-emerald-900">
-              <Check className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 break-words">
-                “{availableResult.domain}” está disponible por {formatEUR(availableResult.price)}
-              </span>
-            </div>
-            <NamecheapBadge />
-          </div>
-          <Button
-            type="button"
-            className="w-full"
-            onClick={() => onAvailable(availableResult.domain, availableResult.price)}
-          >
-            Usar este dominio
-          </Button>
-        </div>
-      )}
-      {unavailableDomain && !error && (
-        <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <X className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 break-words">“{unavailableDomain}” no está disponible.</span>
-          </div>
-          <NamecheapBadge />
-        </div>
-      )}
-      {alternatives.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-          <div className="text-xs font-medium text-foreground">Alternativas disponibles</div>
-          <div className="space-y-2">
-            {alternatives.map((alt) => (
-              <button
-                key={alt.domain}
-                type="button"
-                onClick={() => onAvailable(alt.domain, alt.price)}
-                className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-white px-3 py-3 text-left text-sm transition hover:border-primary/40 hover:bg-primary/5"
-              >
-                <span className="min-w-0 break-words">{alt.domain}</span>
-                <span className="inline-flex items-center gap-1 font-medium">
-                  {formatEUR(alt.price)}
-                  <Check className="h-3.5 w-3.5" />
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={onSkip}
-        className="text-xs text-muted-foreground underline underline-offset-4 transition hover:text-foreground"
-      >
-        Continuar sin dominio personalizado
+        {ALTA_NOT_IN_LIST_LINK}
       </button>
     </div>
   );
@@ -964,8 +1017,8 @@ function StepContacto({
           llamadas ni spam.
         </p>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        {ALTA_CONTACT_REASSURANCE_CHIPS.map((label) => (
           <span
             key={label}
             className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"
@@ -991,7 +1044,7 @@ function StepContacto({
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
-        {["Solo WhatsApp", "Sin spam", "Sin llamadas"].map((label) => (
+        {ALTA_CONTACT_REASSURANCE_CHIPS.map((label) => (
           <span
             key={label}
             className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground ring-1 ring-border/60"

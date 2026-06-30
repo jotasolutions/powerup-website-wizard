@@ -11,6 +11,7 @@ import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 
+import { ALTA_ROOT_DESCRIPTION } from "@/lib/alta-copy";
 import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
@@ -70,9 +71,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" },
+      { httpEquiv: "Content-Language", content: "es" },
       { name: "google", content: "notranslate" },
       { title: "PowerUp Menu · Página Web" },
-      { name: "description", content: "Alta de Página Web para tu restaurante con PowerUp Menu." },
+      { name: "description", content: ALTA_ROOT_DESCRIPTION },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -113,7 +115,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body translate="no" className="notranslate">
         {children}
         <Scripts />
       </body>

@@ -1,4 +1,5 @@
 import {
+  ENABLE_MANAGEMENT_FEE,
   FEE_GESTION_WEB_PROPIA_EUR,
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR,
@@ -8,14 +9,18 @@ import type { AltaState } from "@/components/asistente/types";
 
 export type CheckoutScenario = "trial_free" | "custom_domain" | "management_fee";
 
+export function isPowerUpUpgrade(alta: AltaState): boolean {
+  return alta.powerup_customer === "yes";
+}
+
 export function getCheckoutScenario(alta: AltaState): CheckoutScenario {
-  if (alta.has_existing_website) return "management_fee";
+  if (ENABLE_MANAGEMENT_FEE && alta.has_existing_website) return "management_fee";
   if (alta.domain_is_custom) return "custom_domain";
   return "trial_free";
 }
 
 export function amountDueToday(alta: AltaState): number {
-  if (alta.has_existing_website) return FEE_GESTION_WEB_PROPIA_EUR;
+  if (ENABLE_MANAGEMENT_FEE && alta.has_existing_website) return FEE_GESTION_WEB_PROPIA_EUR;
   if (alta.domain_is_custom) return alta.domain_price ?? 0;
   return 0;
 }
@@ -29,18 +34,26 @@ export function todayPaymentLabel(alta: AltaState): string {
 export function todayPaymentSubtitle(alta: AltaState): string {
   const scenario = getCheckoutScenario(alta);
   if (scenario === "trial_free") {
+    if (isPowerUpUpgrade(alta)) {
+      return `Plan Pro anual · añade tu página web a tu carta PowerUp`;
+    }
     return `${PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba del Plan Pro · incluye tu página web`;
   }
   if (scenario === "custom_domain") {
+    if (isPowerUpUpgrade(alta)) {
+      return `Dominio ${alta.domain} + Plan Pro anual (sin periodo de prueba)`;
+    }
     return `Dominio ${alta.domain} + ${PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba del Plan Pro`;
   }
   return `Fee de gestión web + ${PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba del Plan Pro`;
 }
 
-export function getResumenCta(scenario: CheckoutScenario): string {
+export function getResumenCta(scenario: CheckoutScenario, alta?: AltaState): string {
   switch (scenario) {
     case "trial_free":
-      return "Empezar prueba gratis";
+      return alta?.powerup_customer === "yes"
+        ? "Activar mi página web"
+        : "Empezar prueba gratis";
     case "custom_domain":
       return "Continuar con este dominio";
     case "management_fee":
@@ -59,7 +72,10 @@ export function getContactoCta(scenario: CheckoutScenario): string {
   }
 }
 
-export function annualPlanLabel(): string {
+export function annualPlanLabel(alta?: AltaState): string {
+  if (alta && isPowerUpUpgrade(alta)) {
+    return `Plan Pro: ${formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA`;
+  }
   return `Después del día ${PLAN_PRO_ANUAL_DIAS_PRUEBA}: ${formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año`;
 }
 
@@ -73,11 +89,36 @@ export function planHeroPriceLabel(alta: AltaState): string {
   return `${formatEUR(amount)} hoy`;
 }
 
-export function planHeroBadgeLabel(): string {
+export function planHeroBadgeLabel(alta?: AltaState): string | null {
+  if (alta && isPowerUpUpgrade(alta)) {
+    return "Upgrade a página web";
+  }
   return `${PLAN_PRO_ANUAL_DIAS_PRUEBA} días gratis`;
 }
 
+export function planHeroSubtitle(alta: AltaState): string {
+  const monthly = Math.round(planProMonthlyEur());
+  if (isPowerUpUpgrade(alta)) {
+    return `Plan Pro anual: ${formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA (${monthly} €/mes equivalente). Sin periodo de prueba — ya tienes carta PowerUp.`;
+  }
+  return `Luego ${monthly} €/mes (${formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA) · cancela antes del día ${PLAN_PRO_ANUAL_DIAS_PRUEBA} y no pagas nada`;
+}
+
+export function stripeReassuranceLine(alta?: AltaState): string {
+  if (alta && isPowerUpUpgrade(alta)) {
+    return "Pago seguro con Stripe";
+  }
+  return "Pago seguro con Stripe · cancela durante la prueba";
+}
+
+export function billingExplainerLabel(alta: AltaState): string {
+  return isPowerUpUpgrade(alta) ? "¿Cómo funciona el cobro?" : "¿Cómo funciona la prueba?";
+}
+
 export function planHeroTitle(alta: AltaState): string {
+  if (isPowerUpUpgrade(alta) && !alta.domain_is_custom && !alta.has_existing_website) {
+    return "Añade tu página web a tu carta PowerUp";
+  }
   const scenario = getCheckoutScenario(alta);
   if (scenario === "trial_free") {
     return "Plan Pro completo, con tu página web incluida";

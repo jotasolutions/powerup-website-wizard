@@ -1,5 +1,7 @@
 import {
   boolean,
+  integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -7,9 +9,11 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { PlaceProfile } from "@/lib/place-profile.types";
 
 export const altaStatusEnum = pgEnum("alta_status", ["pending_payment", "paid"]);
 export const altaFeeConceptEnum = pgEnum("alta_fee_concept", ["gestion", "dominio"]);
+export const powerupCustomerEnum = pgEnum("powerup_customer_status", ["unknown", "yes", "no"]);
 
 export const altas = pgTable("altas", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -22,10 +26,23 @@ export const altas = pgTable("altas", {
   wantsCustomDomain: boolean("wants_custom_domain").notNull().default(false),
   domain: text("domain"),
   domainIsCustom: boolean("domain_is_custom").notNull().default(false),
+  powerupCustomer: powerupCustomerEnum("powerup_customer").notNull().default("unknown"),
   onetimeFeeConcept: altaFeeConceptEnum("onetime_fee_concept"),
   onetimeFeeAmount: numeric("onetime_fee_amount", { precision: 10, scale: 2 }),
   contactName: text("contact_name").notNull(),
   whatsapp: text("whatsapp").notNull(),
+  termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }).notNull(),
+  termsVersion: text("terms_version").notNull(),
+  termsDocumentUrl: text("terms_document_url").notNull(),
+  consentUserAgent: text("consent_user_agent"),
+  consentIp: text("consent_ip"),
   status: altaStatusEnum("status").notNull().default("pending_payment"),
   stripeSessionId: text("stripe_session_id"),
+});
+
+export const placeEnrichments = pgTable("place_enrichments", {
+  placeId: text("place_id").primaryKey(),
+  payload: jsonb("payload").$type<PlaceProfile>().notNull(),
+  schemaVersion: integer("schema_version").notNull(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });

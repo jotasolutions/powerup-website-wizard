@@ -11,10 +11,16 @@ export type AltaInsertPayload = {
   wants_custom_domain: boolean;
   domain: string;
   domain_is_custom: boolean;
+  powerup_customer: "unknown" | "yes" | "no";
   onetime_fee_concept: "gestion" | "dominio" | null;
   onetime_fee_amount: number | null;
   contact_name: string;
   whatsapp: string;
+  terms_accepted_at: Date;
+  terms_version: string;
+  terms_document_url: string;
+  consent_user_agent: string | null;
+  consent_ip: string | null;
 };
 
 export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
@@ -29,11 +35,17 @@ export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
       wantsCustomDomain: payload.wants_custom_domain,
       domain: payload.domain,
       domainIsCustom: payload.domain_is_custom,
+      powerupCustomer: payload.powerup_customer,
       onetimeFeeConcept: payload.onetime_fee_concept,
       onetimeFeeAmount:
         payload.onetime_fee_amount != null ? String(payload.onetime_fee_amount) : null,
       contactName: payload.contact_name,
       whatsapp: payload.whatsapp,
+      termsAcceptedAt: payload.terms_accepted_at,
+      termsVersion: payload.terms_version,
+      termsDocumentUrl: payload.terms_document_url,
+      consentUserAgent: payload.consent_user_agent,
+      consentIp: payload.consent_ip,
       status: "pending_payment",
     })
     .returning({ id: altas.id });

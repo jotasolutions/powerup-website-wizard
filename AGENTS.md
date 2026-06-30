@@ -18,24 +18,26 @@ npm run dev            # http://localhost:8080
 | `DATABASE_URL` | Neon Postgres (obligatorio) |
 | `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
 | `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
-| `GOOGLE_PLACES_API_KEY` | Google Places API (New) para búsqueda de restaurantes (obligatorio en **Production**) |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
-| `NAMECHEAP_API_USER` | Usuario API de Namecheap (obligatorio si `MOCK_DOMAIN_CHECK=false`) |
-| `NAMECHEAP_API_KEY` | API key de Namecheap (obligatorio si `MOCK_DOMAIN_CHECK=false`) |
-| `NAMECHEAP_CLIENT_IP` | IPv4 autorizada en Namecheap API Access (obligatorio si `MOCK_DOMAIN_CHECK=false`) |
-| `NAMECHEAP_SANDBOX` | `true` para usar `api.sandbox.namecheap.com` |
-| `NAMECHEAP_DOMAIN_MARGIN_PERCENT` | Margen porcentual aplicado al precio base del dominio (default: `20`) |
-| `NAMECHEAP_USD_TO_EUR` | Cambio fijo USD→EUR usado cuando Namecheap no devuelve EUR (default: `0.92`) |
-
-Para activar comprobación real de dominios con Namecheap, configura `NAMECHEAP_API_USER`, `NAMECHEAP_API_KEY` y `NAMECHEAP_CLIENT_IP` (IP autorizada en Namecheap → Profile → Tools → API Access). Con credenciales completas se usa Namecheap automáticamente; pon `MOCK_DOMAIN_CHECK=true` para forzar mock en local.
-
-Tras añadir o cambiar variables en Vercel, **redeploy de Production** para que el serverless las reciba. La API key de Google debe ser de **servidor** (sin restricción HTTP referrer).
 
 ## Flujo principal
 
 1. UI: `src/components/asistente/AsistenteAlta.tsx`
 2. Server fn: `src/lib/alta.functions.ts` → `startCheckout` (insert Neon + sesión Stripe)
 3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout`
+
+### Prefetch de dominio (etapa 6)
+
+- Al fijar `restaurant_name` (pick GMB o alta manual), `useDomainPrefetch` dispara `checkDomain` para `{slug}.es` en paralelo al enrichment.
+- El resultado vive en React Query con clave `["domain-prefetch", candidateDomain]`; no duplicar en `AltaState`.
+- Si el `.es` exacto no está libre, se promueve la primera alternativa de Namecheap como sugerencia lista en `elegirDominio`.
+- `has_existing_website` no se deriva de `place_profile` — desacoplado a propósito para el fee de gestión.
+
+### `resolveBusinessTerm` — no usar para afirmar tipo en copy
+
+`resolveBusinessTerm` (`src/lib/business-type.ts`) sigue calculándose en enrichment (`place_profile.business_term`) por si hace falta en analytics o lógica futura, pero **no interpolar en textos al usuario**: Google mete `bar` / `cocktail_bar` en `types[]` de muchos restaurantes (p. ej. Voltereta Manhattan → `business_term === "bar"` con `primaryTypeDisplayName` «Restaurante de fusión»).
+
+**Copy neutro (no depende de `business_term`):** `formatConfirmInfoPrompt`, `formatEncontradoBotPrompt`, `formatEncontradoLoadingLabel`, `formatOrderDetailLabel`, `formatSupportBusinessLabel`. La data card muestra `cuisine_label`, no `business_term`. La enumeración genérica «restaurante, bar o cafetería» en welcome/placeholder es intencional.
 
 ## Convenciones
 

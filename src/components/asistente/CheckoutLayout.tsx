@@ -84,7 +84,7 @@ export function CheckoutLayout({
         className={cn(
           "container-narrow flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 py-2 max-md:py-2 sm:gap-3 sm:py-4",
           allowScroll ? "overflow-y-auto" : "overflow-hidden",
-          isContacto && "pb-2",
+          isContacto && "pb-1",
         )}
         style={{
           paddingBottom:
@@ -95,6 +95,12 @@ export function CheckoutLayout({
           <h2 className="font-display text-lg font-medium tracking-tight">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
         </div>
+        {isContacto ? (
+          <div className="sm:hidden">
+            <h2 className="font-display text-base font-medium tracking-tight">{title}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
+          </div>
+        ) : null}
 
         <div className="shrink-0 rounded-xl border bg-card p-3 shadow-card">
           <ResumenPedido

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +9,7 @@ import {
   PLAN_PRO_ANUAL_DIAS_PRUEBA,
   formatEUR,
 } from "@/lib/alta-config";
-import { finalizeCheckout } from "@/lib/alta.functions";
+import { finalizeCheckout, getAltaSummary } from "@/lib/alta.functions";
 import { clearAltaDraft } from "@/lib/checkout-scenario";
 
 const searchSchema = z.object({
@@ -32,6 +32,8 @@ export const Route = createFileRoute("/confirmacion")({
 function Confirmacion() {
   const { alta_id, session_id } = Route.useSearch();
   const finalizeCheckoutFn = useServerFn(finalizeCheckout);
+  const getAltaSummaryFn = useServerFn(getAltaSummary);
+  const [isPowerUpUpgrade, setIsPowerUpUpgrade] = useState(false);
 
   useEffect(() => {
     clearAltaDraft();
@@ -50,6 +52,20 @@ function Confirmacion() {
     });
   }, [alta_id, session_id, finalizeCheckoutFn]);
 
+  useEffect(() => {
+    if (!alta_id) return;
+
+    getAltaSummaryFn({ data: { alta_id } })
+      .then((summary) => {
+        if (summary?.powerup_customer === "yes") {
+          setIsPowerUpUpgrade(true);
+        }
+      })
+      .catch((error) => {
+        console.error("No se pudo cargar el resumen del alta:", error);
+      });
+  }, [alta_id, getAltaSummaryFn]);
+
   return (
     <main className="container-narrow safe-area-bottom flex min-h-dvh flex-col items-center justify-center py-10 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-gradient text-white shadow-brand">
@@ -66,10 +82,21 @@ function Confirmacion() {
           Recordatorio
         </div>
         <p className="mt-1.5 text-sm">
-          Tu plan <strong>Pro Anual</strong> (incluye tu página web) tiene{" "}
-          <strong>{PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba</strong>. Después se cobra
-          automáticamente <strong>{formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año</strong>{" "}
-          con el método de pago que has dejado.
+          {isPowerUpUpgrade ? (
+            <>
+              Tu upgrade a <strong>página web</strong> activa el plan <strong>Pro Anual</strong> (
+              {formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA) <strong>sin periodo de prueba</strong>{" "}
+              — ya tienes carta PowerUp. El cobro del plan sigue el método de pago que has dejado en
+              Stripe.
+            </>
+          ) : (
+            <>
+              Tu plan <strong>Pro Anual</strong> (incluye tu página web) tiene{" "}
+              <strong>{PLAN_PRO_ANUAL_DIAS_PRUEBA} días de prueba</strong>. Después se cobra
+              automáticamente <strong>{formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año</strong>{" "}
+              con el método de pago que has dejado.
+            </>
+          )}
         </p>
       </div>
 

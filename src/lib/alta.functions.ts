@@ -7,16 +7,18 @@ import {
   verifyCheckoutSession,
 } from "./stripe.server";
 import { getAppOrigin } from "./app-env.server";
-import { getAltaById, insertAlta, markAltaPaid } from "./db-server";
+import { getAltaById, insertAlta, markAltaPaid, type AltaInsertPayload } from "./db-server";
 import {
   hasEvolutionConfig,
   hasGooglePlaces,
   hasNamecheapConfig,
   shouldMockDomainCheck,
 } from "./env.server";
-import { searchRestaurants, resolveAddressSuggestions, getSimplifiedAddress } from "./google-places.server";
+import { searchHospitalityBusinesses, resolveAddressSuggestions, getSimplifiedAddress } from "./google-places.server";
+import { enrichPlaceProfile } from "./place-enrichment.server";
 import { checkDomainWithNamecheap } from "./namecheap.server";
-import WhatsappRepository from "@/server/repositories/WhatsappRepository";
+import { normalizePowerUpCustomerForPersist } from "./powerup-customer";
+import { getClientIpFromRequest } from "./request-context.server";
 
 function normalizeWhatsapp(phone: string): string {
   return phone.replace(/[^\d]/g, "");
@@ -46,7 +48,7 @@ export const validateWhatsapp = createServerFn({ method: "POST" })
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// gmb-search: busca restaurantes en Google Business Profile / Places.
+// gmb-search: busca locales de hostelería en Google (restaurante, bar, cafetería…).
 // ─────────────────────────────────────────────────────────────────────────────
 export const gmbSearch = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ query: z.string().min(3) }).parse(input))
@@ -55,7 +57,7 @@ export const gmbSearch = createServerFn({ method: "POST" })
       throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
     }
 
-    const results = await searchRestaurants(data.query);
+    const results = await searchHospitalityBusinesses(data.query);
     return { results };
   });
 
@@ -89,6 +91,27 @@ export const addressResolve = createServerFn({ method: "POST" })
 
     const simplified_address = await getSimplifiedAddress(data.place_id);
     return { simplified_address };
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// enrich-place: perfil enriquecido de un restaurante (Places API New).
+// ─────────────────────────────────────────────────────────────────────────────
+export const enrichPlace = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z
+      .object({
+        place_id: z.string().min(1),
+        fallback_name: z.string().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    if (!hasGooglePlaces()) {
+      throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
+    }
+
+    const profile = await enrichPlaceProfile(data.place_id, data.fallback_name);
+    return { profile };
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,6 +152,12 @@ export const checkDomain = createServerFn({ method: "POST" })
 // Checkout: persiste el alta en Neon y abre Stripe Checkout (una sola llamada).
 // Para guardar el lead antes del pago, usar saveAlta + createCheckout por separado.
 // ─────────────────────────────────────────────────────────────────────────────
+const AltaConsentFields = z.object({
+  terms_version: z.string().min(1),
+  terms_document_url: z.string().url(),
+  consent_user_agent: z.string().nullable().optional(),
+});
+
 const AltaInput = z.object({
   restaurant_name: z.string().min(1),
   restaurant_address: z.string().nullable(),
@@ -138,31 +167,46 @@ const AltaInput = z.object({
   wants_custom_domain: z.boolean(),
   domain: z.string().min(1),
   domain_is_custom: z.boolean(),
+  powerup_customer: z.enum(["unknown", "yes", "no"]),
   onetime_fee_concept: z.enum(["gestion", "dominio"]).nullable(),
   onetime_fee_amount: z.number().nullable(),
   contact_name: z.string().min(1),
   whatsapp: z.string().min(3),
   /** Origen del navegador (p. ej. http://localhost:8081) para URLs de vuelta de Stripe. */
   origin: z.string().url().optional(),
-});
+}).merge(AltaConsentFields);
+
+function toInsertPayload(
+  data: z.infer<typeof AltaInput>,
+  powerupCustomer: "yes" | "no",
+): AltaInsertPayload {
+  return {
+    restaurant_name: data.restaurant_name,
+    restaurant_address: data.restaurant_address,
+    gmb_place_id: data.gmb_place_id,
+    has_existing_website: data.has_existing_website,
+    existing_website_url: data.existing_website_url,
+    wants_custom_domain: data.wants_custom_domain,
+    domain: data.domain,
+    domain_is_custom: data.domain_is_custom,
+    powerup_customer: powerupCustomer,
+    onetime_fee_concept: data.onetime_fee_concept,
+    onetime_fee_amount: data.onetime_fee_amount,
+    contact_name: data.contact_name,
+    whatsapp: data.whatsapp,
+    terms_accepted_at: new Date(),
+    terms_version: data.terms_version,
+    terms_document_url: data.terms_document_url,
+    consent_user_agent: data.consent_user_agent ?? null,
+    consent_ip: getClientIpFromRequest(),
+  };
+}
 
 export const startCheckout = createServerFn({ method: "POST" })
   .validator((input: unknown) => AltaInput.parse(input))
   .handler(async ({ data }) => {
-    const altaId = await insertAlta({
-      restaurant_name: data.restaurant_name,
-      restaurant_address: data.restaurant_address,
-      gmb_place_id: data.gmb_place_id,
-      has_existing_website: data.has_existing_website,
-      existing_website_url: data.existing_website_url,
-      wants_custom_domain: data.wants_custom_domain,
-      domain: data.domain,
-      domain_is_custom: data.domain_is_custom,
-      onetime_fee_concept: data.onetime_fee_concept,
-      onetime_fee_amount: data.onetime_fee_amount,
-      contact_name: data.contact_name,
-      whatsapp: data.whatsapp,
-    });
+    const powerupCustomer = normalizePowerUpCustomerForPersist(data.powerup_customer);
+    const altaId = await insertAlta(toInsertPayload(data, powerupCustomer));
 
     const useStripe = hasStripeCheckout();
 
@@ -176,6 +220,7 @@ export const startCheckout = createServerFn({ method: "POST" })
       altaId,
       origin: data.origin ?? getAppOrigin(),
       restaurantName: data.restaurant_name,
+      powerupCustomer,
       onetimeFeeConcept: data.onetime_fee_concept,
       onetimeFeeAmount: data.onetime_fee_amount,
     });
@@ -191,20 +236,8 @@ export const startCheckout = createServerFn({ method: "POST" })
 export const saveAlta = createServerFn({ method: "POST" })
   .validator((input: unknown) => AltaInput.omit({ origin: true }).parse(input))
   .handler(async ({ data }) => {
-    const altaId = await insertAlta({
-      restaurant_name: data.restaurant_name,
-      restaurant_address: data.restaurant_address,
-      gmb_place_id: data.gmb_place_id,
-      has_existing_website: data.has_existing_website,
-      existing_website_url: data.existing_website_url,
-      wants_custom_domain: data.wants_custom_domain,
-      domain: data.domain,
-      domain_is_custom: data.domain_is_custom,
-      onetime_fee_concept: data.onetime_fee_concept,
-      onetime_fee_amount: data.onetime_fee_amount,
-      contact_name: data.contact_name,
-      whatsapp: data.whatsapp,
-    });
+    const powerupCustomer = normalizePowerUpCustomerForPersist(data.powerup_customer);
+    const altaId = await insertAlta(toInsertPayload(data, powerupCustomer));
 
     return { alta_id: altaId, saved: true as const };
   });
@@ -240,10 +273,13 @@ export const createCheckout = createServerFn({ method: "POST" })
     const onetimeFeeAmount =
       alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
 
+    const powerupCustomer = normalizePowerUpCustomerForPersist(alta.powerupCustomer);
+
     const session = await createAltaCheckoutSession({
       altaId: data.alta_id,
       origin: data.origin ?? getAppOrigin(),
       restaurantName: alta.restaurantName,
+      powerupCustomer,
       onetimeFeeConcept: alta.onetimeFeeConcept,
       onetimeFeeAmount,
     });
@@ -276,4 +312,17 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
 
     await markAltaPaid(data.alta_id, data.session_id);
     return { ok: true, mock: false };
+  });
+
+/** Resumen público del alta para la página de confirmación (sin datos sensibles). */
+export const getAltaSummary = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ alta_id: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    const alta = await getAltaById(data.alta_id);
+    if (!alta) return null;
+
+    return {
+      powerup_customer: alta.powerupCustomer,
+      restaurant_name: alta.restaurantName,
+    };
   });

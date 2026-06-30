@@ -1,14 +1,9 @@
 import type { AltaState } from "./types";
 import {
-  PLAN_PRO_ANUAL_DIAS_PRUEBA,
-  PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR,
-  formatEUR,
-} from "@/lib/alta-config";
-import {
   planHeroBadgeLabel,
   planHeroPriceLabel,
+  planHeroSubtitle,
   planHeroTitle,
-  planProMonthlyEur,
 } from "@/lib/checkout-scenario";
 import { cn } from "@/lib/utils";
 import { WhatsAppIcon } from "@/components/icons/WhatsAppIcon";
@@ -21,7 +16,7 @@ type Props = {
 export function PlanProHero({ alta, size = "default" }: Props) {
   const compact = size === "compact";
   const minimal = size === "minimal";
-  const monthly = Math.round(planProMonthlyEur());
+  const badge = planHeroBadgeLabel(alta);
 
   return (
     <div
@@ -40,9 +35,11 @@ export function PlanProHero({ alta, size = "default" }: Props) {
           >
             {planHeroPriceLabel(alta)}
           </span>
-          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-[#1a6b45] shadow-sm">
-            {planHeroBadgeLabel()}
-          </span>
+          {badge ? (
+            <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-[#1a6b45] shadow-sm">
+              {badge}
+            </span>
+          ) : null}
         </div>
         <span
           className={cn(
@@ -64,9 +61,7 @@ export function PlanProHero({ alta, size = "default" }: Props) {
       </p>
       {!minimal ? (
         <p className={cn("mt-1.5 leading-snug text-muted-foreground", compact ? "text-xs" : "text-sm")}>
-          Luego <span className="font-semibold text-[#1a6b45]">{monthly} €/mes</span> (
-          {formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA) · cancela antes del día{" "}
-          {PLAN_PRO_ANUAL_DIAS_PRUEBA} y no pagas nada
+          {planHeroSubtitle(alta)}
         </p>
       ) : null}
     </div>

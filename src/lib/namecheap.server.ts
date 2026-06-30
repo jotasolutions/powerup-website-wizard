@@ -1,4 +1,7 @@
 import { DOMAIN_PRICE_MARGIN_PERCENT } from "./alta-config";
+import type { DomainAlternative, DomainCheckResult } from "./domain-check.types";
+
+export type { DomainAlternative, DomainCheckResult };
 import {
   getNamecheapApiKey,
   getNamecheapApiUser,
@@ -21,15 +24,6 @@ type NamecheapDomainPrice = {
   amount: number;
   currency: string;
 };
-
-export type DomainAlternative = {
-  domain: string;
-  price: number;
-};
-
-export type DomainCheckResult =
-  | { available: true; price: number }
-  | { available: false; alternatives: DomainAlternative[] };
 
 const NAMECHEAP_API_BASE = "https://api.namecheap.com/xml.response";
 const NAMECHEAP_SANDBOX_API_BASE = "https://api.sandbox.namecheap.com/xml.response";

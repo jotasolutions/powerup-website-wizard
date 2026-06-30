@@ -1,4 +1,4 @@
-import { getGooglePlacesApiKey } from "./env.server";
+import { parsePlaceId, placesFetch } from "./places-client.server";
 
 export type GmbResult = {
   name: string;
@@ -17,10 +17,6 @@ type AddressComponent = {
   shortText?: string;
   types?: string[];
 };
-
-function parsePlaceId(resourceName: string): string {
-  return resourceName.startsWith("places/") ? resourceName.slice("places/".length) : resourceName;
-}
 
 function componentText(components: AddressComponent[], type: string): string | undefined {
   const c = components.find((item) => item.types?.includes(type));
@@ -41,37 +37,6 @@ export function formatSimplifiedAddress(components: AddressComponent[]): string 
   return "";
 }
 
-async function placesFetch<T>(
-  path: string,
-  init: RequestInit & { fieldMask?: string },
-): Promise<T> {
-  const apiKey = getGooglePlacesApiKey();
-  if (!apiKey) {
-    throw new Error("Falta GOOGLE_PLACES_API_KEY en las variables de entorno.");
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Goog-Api-Key": apiKey,
-    ...(init.fieldMask ? { "X-Goog-FieldMask": init.fieldMask } : {}),
-  };
-
-  const { fieldMask: _fm, ...rest } = init;
-  const response = await fetch(`https://places.googleapis.com/v1/${path}`, {
-    ...rest,
-    headers: { ...headers, ...(rest.headers as Record<string, string>) },
-  });
-
-  const payload = (await response.json()) as T & { error?: { message?: string } };
-
-  if (!response.ok) {
-    const detail = payload.error?.message ?? `HTTP ${response.status}`;
-    throw new Error(`Google Places no respondió correctamente: ${detail}`);
-  }
-
-  return payload;
-}
-
 type PlacesSearchResponse = {
   places?: Array<{
     id?: string;
@@ -80,7 +45,23 @@ type PlacesSearchResponse = {
   }>;
 };
 
-export async function searchRestaurants(query: string): Promise<GmbResult[]> {
+/** Tipos GMB incluidos en la búsqueda paralela (restaurante, bar, cafetería…). */
+export const GMB_SEARCH_INCLUDED_TYPES = [
+  "restaurant",
+  "bar",
+  "cafe",
+  "coffee_shop",
+  "bakery",
+  "pub",
+] as const;
+
+const GMB_RESULTS_PER_TYPE = 4;
+const GMB_MAX_MERGED_RESULTS = 8;
+
+async function searchPlacesByIncludedType(
+  query: string,
+  includedType: string,
+): Promise<GmbResult[]> {
   const payload = await placesFetch<PlacesSearchResponse>("places:searchText", {
     method: "POST",
     fieldMask: "places.id,places.displayName,places.formattedAddress",
@@ -88,8 +69,8 @@ export async function searchRestaurants(query: string): Promise<GmbResult[]> {
       textQuery: query,
       languageCode: "es",
       regionCode: "ES",
-      includedType: "restaurant",
-      maxResultCount: 8,
+      includedType,
+      maxResultCount: GMB_RESULTS_PER_TYPE,
     }),
   });
 
@@ -100,6 +81,39 @@ export async function searchRestaurants(query: string): Promise<GmbResult[]> {
       address: place.formattedAddress ?? "",
       place_id: parsePlaceId(place.id!),
     }));
+}
+
+/** Fusiona lotes de resultados GMB sin duplicar place_id (orden de llegada). */
+export function mergeGmbResults(batches: GmbResult[][]): GmbResult[] {
+  const seen = new Set<string>();
+  const merged: GmbResult[] = [];
+
+  for (const batch of batches) {
+    for (const item of batch) {
+      if (seen.has(item.place_id)) continue;
+      seen.add(item.place_id);
+      merged.push(item);
+      if (merged.length >= GMB_MAX_MERGED_RESULTS) return merged;
+    }
+  }
+
+  return merged;
+}
+
+/** Búsqueda en Google: restaurantes, bares, cafeterías y similares. */
+export async function searchHospitalityBusinesses(query: string): Promise<GmbResult[]> {
+  const batches = await Promise.all(
+    GMB_SEARCH_INCLUDED_TYPES.map((includedType) =>
+      searchPlacesByIncludedType(query, includedType).catch(() => [] as GmbResult[]),
+    ),
+  );
+
+  return mergeGmbResults(batches);
+}
+
+/** @deprecated Alias — usar searchHospitalityBusinesses */
+export async function searchRestaurants(query: string): Promise<GmbResult[]> {
+  return searchHospitalityBusinesses(query);
 }
 
 type AutocompleteResponse = {

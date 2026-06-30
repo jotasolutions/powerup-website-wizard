@@ -1,4 +1,5 @@
 import type { AltaState } from "@/components/asistente/types";
+import { formatSupportBusinessLabel } from "./alta-copy";
 
 const DEFAULT_SUPPORT_WHATSAPP_E164 = "34651332202";
 
@@ -16,7 +17,7 @@ export function buildSupportWhatsAppMessage(alta: AltaState): string {
 
   return `Hola, necesito ayuda con el alta de mi página web.
 
-Restaurante: ${alta.restaurant_name}
+${formatSupportBusinessLabel()}: ${alta.restaurant_name}
 Dirección: ${alta.restaurant_address || "—"}
 ${domainLine}
 

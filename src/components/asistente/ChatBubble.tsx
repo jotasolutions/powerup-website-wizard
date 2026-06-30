@@ -20,6 +20,8 @@ function BotAvatar() {
   );
 }
 
+export { BotAvatar };
+
 export function ChatBubble({ role, children }: Props) {
   if (role === "user") {
     return (

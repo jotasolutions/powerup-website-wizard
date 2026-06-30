@@ -2,6 +2,32 @@ import Stripe from "stripe";
 import { PLAN_PRO_ANUAL_DIAS_PRUEBA } from "./alta-config";
 import { getStripeAnnualPriceId, getStripeSecretKey, hasStripeConfig } from "./env.server";
 
+export type PowerUpCustomerStripeFlag = "unknown" | "yes" | "no";
+
+// TODO(fase 2): lookupPowerUpBilling por dominio/email Stripe; evitar suscripciones duplicadas
+// (subscriptions.update vs nuevo checkout) sin reintroducir paso manual en el wizard.
+
+/** Pure helper — trial solo para clientes nuevos; upgrade carta sin trial. */
+export function buildCheckoutSubscriptionData(params: {
+  altaId: string;
+  restaurantName: string;
+  powerupCustomer: PowerUpCustomerStripeFlag;
+}): Stripe.Checkout.SessionCreateParams.SubscriptionData {
+  const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
+    metadata: {
+      alta_id: params.altaId,
+      restaurant_name: params.restaurantName,
+      powerup_customer: params.powerupCustomer,
+    },
+  };
+
+  if (params.powerupCustomer !== "yes") {
+    subscriptionData.trial_period_days = PLAN_PRO_ANUAL_DIAS_PRUEBA;
+  }
+
+  return subscriptionData;
+}
+
 function getStripe(): Stripe {
   const secretKey = getStripeSecretKey();
   if (!secretKey) {
@@ -33,6 +59,7 @@ export async function createAltaCheckoutSession(params: {
   altaId: string;
   origin: string;
   restaurantName: string;
+  powerupCustomer: PowerUpCustomerStripeFlag;
   onetimeFeeConcept: "gestion" | "dominio" | null;
   onetimeFeeAmount: number | null;
 }): Promise<Stripe.Checkout.Session> {
@@ -63,16 +90,15 @@ export async function createAltaCheckoutSession(params: {
   return stripe.checkout.sessions.create({
     mode: "subscription",
     line_items: lineItems,
-    subscription_data: {
-      trial_period_days: PLAN_PRO_ANUAL_DIAS_PRUEBA,
-      metadata: {
-        alta_id: params.altaId,
-        restaurant_name: params.restaurantName,
-      },
-    },
+    subscription_data: buildCheckoutSubscriptionData({
+      altaId: params.altaId,
+      restaurantName: params.restaurantName,
+      powerupCustomer: params.powerupCustomer,
+    }),
     metadata: {
       alta_id: params.altaId,
       restaurant_name: params.restaurantName,
+      powerup_customer: params.powerupCustomer,
     },
     client_reference_id: params.altaId,
     success_url: `${params.origin}/confirmacion?alta_id=${params.altaId}&session_id={CHECKOUT_SESSION_ID}`,

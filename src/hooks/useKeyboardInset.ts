@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 
 export const KEYBOARD_OPEN_THRESHOLD = 50;
 
@@ -142,6 +142,32 @@ export function useVisualViewport(): VisualViewportState {
 /** Altura del teclado virtual (px) vía visualViewport. */
 export function useKeyboardInset(): number {
   return useVisualViewport().keyboardInset;
+}
+
+/** Altura de un elemento medida con ResizeObserver (px). */
+export function useElementHeight(ref: RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      setHeight(0);
+      return;
+    }
+
+    function update() {
+      if (ref.current) {
+        setHeight(Math.round(ref.current.getBoundingClientRect().height));
+      }
+    }
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  return height;
 }
 
 export function scrollInputIntoView(element: HTMLElement | null) {

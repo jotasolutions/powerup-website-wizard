@@ -1,5 +1,7 @@
 import { Globe } from "lucide-react";
 import type { AltaState } from "./types";
+import { formatOrderDetailLabel } from "@/lib/alta-copy";
+import { formatEUR } from "@/lib/alta-config";
 import { cn } from "@/lib/utils";
 
 function domainValue(alta: AltaState): string {
@@ -10,6 +12,7 @@ function domainValue(alta: AltaState): string {
 function domainFieldLabel(alta: AltaState): string {
   if (alta.has_existing_website) return "Web actual";
   if (alta.domain_is_custom) return "Dominio personalizado";
+  if (alta.powerup_customer === "yes") return "Carta PowerUp";
   return "Dominio";
 }
 
@@ -32,7 +35,9 @@ export function PedidoDetalle({ alta, size = "compact" }: Props) {
       <div className={cn(minimal ? "space-y-1" : "space-y-2")}>
         <div>
           {!minimal ? (
-            <div className="text-[10px] text-muted-foreground">Restaurante</div>
+            <div className="text-[10px] text-muted-foreground">
+              {formatOrderDetailLabel()}
+            </div>
           ) : null}
           <p
             className={cn(
@@ -61,6 +66,9 @@ export function PedidoDetalle({ alta, size = "compact" }: Props) {
               )}
             >
               {domain}
+              {alta.domain_is_custom && alta.domain_price != null ? (
+                <span className="text-muted-foreground"> · {formatEUR(alta.domain_price)} hoy</span>
+              ) : null}
             </p>
           </div>
         </div>

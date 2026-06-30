@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ConfirmacionRouteImport } from './routes/confirmacion'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DevEnrichmentPreviewRouteImport } from './routes/dev.enrichment-preview'
+import { Route as DevDomainPreviewRouteImport } from './routes/dev.domain-preview'
 
 const ConfirmacionRoute = ConfirmacionRouteImport.update({
   id: '/confirmacion',
@@ -22,31 +24,58 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevEnrichmentPreviewRoute = DevEnrichmentPreviewRouteImport.update({
+  id: '/dev/enrichment-preview',
+  path: '/dev/enrichment-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevDomainPreviewRoute = DevDomainPreviewRouteImport.update({
+  id: '/dev/domain-preview',
+  path: '/dev/domain-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/confirmacion': typeof ConfirmacionRoute
+  '/dev/domain-preview': typeof DevDomainPreviewRoute
+  '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/confirmacion': typeof ConfirmacionRoute
+  '/dev/domain-preview': typeof DevDomainPreviewRoute
+  '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/confirmacion': typeof ConfirmacionRoute
+  '/dev/domain-preview': typeof DevDomainPreviewRoute
+  '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/confirmacion'
+  fullPaths:
+    | '/'
+    | '/confirmacion'
+    | '/dev/domain-preview'
+    | '/dev/enrichment-preview'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/confirmacion'
-  id: '__root__' | '/' | '/confirmacion'
+  to: '/' | '/confirmacion' | '/dev/domain-preview' | '/dev/enrichment-preview'
+  id:
+    | '__root__'
+    | '/'
+    | '/confirmacion'
+    | '/dev/domain-preview'
+    | '/dev/enrichment-preview'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConfirmacionRoute: typeof ConfirmacionRoute
+  DevDomainPreviewRoute: typeof DevDomainPreviewRoute
+  DevEnrichmentPreviewRoute: typeof DevEnrichmentPreviewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +94,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dev/enrichment-preview': {
+      id: '/dev/enrichment-preview'
+      path: '/dev/enrichment-preview'
+      fullPath: '/dev/enrichment-preview'
+      preLoaderRoute: typeof DevEnrichmentPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dev/domain-preview': {
+      id: '/dev/domain-preview'
+      path: '/dev/domain-preview'
+      fullPath: '/dev/domain-preview'
+      preLoaderRoute: typeof DevDomainPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConfirmacionRoute: ConfirmacionRoute,
+  DevDomainPreviewRoute: DevDomainPreviewRoute,
+  DevEnrichmentPreviewRoute: DevEnrichmentPreviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
