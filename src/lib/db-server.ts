@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 
@@ -22,6 +22,34 @@ export type AltaInsertPayload = {
   consent_user_agent: string | null;
   consent_ip: string | null;
 };
+
+export type FulfillAltaFromCheckoutParams = {
+  altaId: string;
+  stripeSessionId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeCustomerId: string | null;
+};
+
+export type FulfillAltaOutcome =
+  | { outcome: "fulfilled" }
+  | { outcome: "already_fulfilled" }
+  | {
+      outcome: "duplicate_paid_checkout";
+      existingSubscriptionId: string | null;
+      incomingSubscriptionId: string | null;
+    }
+  | { outcome: "alta_not_found" }
+  | { outcome: "still_pending" };
+
+/** Compara IDs de suscripción para idempotencia y detección de doble cobro. */
+export function stripeSubscriptionIdsMatch(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+): boolean {
+  const a = existing ?? null;
+  const b = incoming ?? null;
+  return a === b;
+}
 
 export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
   const [row] = await getDb()
@@ -57,16 +85,76 @@ export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
   return row.id;
 }
 
-export async function markAltaPaid(altaId: string, stripeSessionId: string): Promise<void> {
+/**
+ * Promueve un alta a paid de forma idempotente.
+ * Si el UPDATE no toca filas (ya paid), SELECT para distinguir reentrega vs doble cobro.
+ */
+export async function fulfillAltaFromCheckout(
+  params: FulfillAltaFromCheckoutParams,
+): Promise<FulfillAltaOutcome> {
   const updated = await getDb()
     .update(altas)
-    .set({ status: "paid", stripeSessionId })
-    .where(eq(altas.id, altaId))
+    .set({
+      status: "paid",
+      stripeSessionId: params.stripeSessionId,
+      stripeSubscriptionId: params.stripeSubscriptionId,
+      stripeCustomerId: params.stripeCustomerId,
+    })
+    .where(and(eq(altas.id, params.altaId), ne(altas.status, "paid")))
     .returning({ id: altas.id });
 
-  if (updated.length === 0) {
-    throw new Error("No se pudo actualizar el alta.");
+  if (updated.length > 0) {
+    return { outcome: "fulfilled" };
   }
+
+  const existing = await getAltaById(params.altaId);
+  if (!existing) {
+    return { outcome: "alta_not_found" };
+  }
+
+  if (existing.status === "pending_payment") {
+    return { outcome: "still_pending" };
+  }
+
+  if (stripeSubscriptionIdsMatch(existing.stripeSubscriptionId, params.stripeSubscriptionId)) {
+    return { outcome: "already_fulfilled" };
+  }
+
+  console.warn(
+    JSON.stringify({
+      event: "duplicate_paid_checkout",
+      alta_id: params.altaId,
+      existing_subscription_id: existing.stripeSubscriptionId ?? null,
+      incoming_subscription_id: params.stripeSubscriptionId ?? null,
+      stripe_session_id: params.stripeSessionId ?? null,
+    }),
+  );
+
+  return {
+    outcome: "duplicate_paid_checkout",
+    existingSubscriptionId: existing.stripeSubscriptionId ?? null,
+    incomingSubscriptionId: params.stripeSubscriptionId ?? null,
+  };
+}
+
+/** Camino mock sin Stripe: marca paid con session id sintético. */
+export async function markAltaPaidMock(altaId: string): Promise<void> {
+  const updated = await getDb()
+    .update(altas)
+    .set({ status: "paid", stripeSessionId: `mock_${altaId}` })
+    .where(and(eq(altas.id, altaId), ne(altas.status, "paid")))
+    .returning({ id: altas.id });
+
+  if (updated.length > 0) {
+    return;
+  }
+
+  const existing = await getAltaById(altaId);
+  if (existing?.status === "paid") {
+    return;
+  }
+
+  throw new Error("No se pudo actualizar el alta.");
 }
 
 export async function getAltaById(altaId: string) {

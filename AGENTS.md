@@ -16,15 +16,20 @@ npm run dev            # http://localhost:8080
 | Variable | Uso |
 |---|---|
 | `DATABASE_URL` | Neon Postgres (obligatorio) |
+| `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` | PostHog cliente (`posthog-js`) y servidor (`posthog-node` en webhook) |
+| `VITE_PUBLIC_POSTHOG_HOST` | Host EU de ingestión (`https://eu.i.posthog.com`); también lo usa `posthog-node` |
 | `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
 | `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
+| `STRIPE_WEBHOOK_SECRET` | Secreto del endpoint webhook (`whsec_…`); fulfillment autoritativo en `POST /api/stripe/webhook` |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
+
+En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
 
 ## Flujo principal
 
 1. UI: `src/components/asistente/AsistenteAlta.tsx`
-2. Server fn: `src/lib/alta.functions.ts` → `startCheckout` (insert Neon + sesión Stripe)
-3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout`
+2. Server fn: `src/lib/alta.functions.ts` → `saveAlta` + `createCheckout` (UI); fulfillment `paid` vía webhook `POST /api/stripe/webhook`
+3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout` (UX idempotente; autoridad en webhook)
 
 ### Prefetch de dominio (etapa 6)
 

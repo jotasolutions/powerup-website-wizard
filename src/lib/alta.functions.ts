@@ -4,10 +4,19 @@ import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
-  verifyCheckoutSession,
+  normalizeStripeId,
+  retrieveCheckoutSession,
+  extractAltaIdFromCheckoutSession,
+  isCheckoutSessionComplete,
 } from "./stripe.server";
 import { getAppOrigin } from "./app-env.server";
-import { getAltaById, insertAlta, markAltaPaid, type AltaInsertPayload } from "./db-server";
+import {
+  fulfillAltaFromCheckout,
+  getAltaById,
+  insertAlta,
+  markAltaPaidMock,
+  type AltaInsertPayload,
+} from "./db-server";
 import {
   hasEvolutionConfig,
   hasGooglePlaces,
@@ -211,7 +220,7 @@ export const startCheckout = createServerFn({ method: "POST" })
     const useStripe = hasStripeCheckout();
 
     if (!useStripe) {
-      await markAltaPaid(altaId, `mock_${altaId}`);
+      await markAltaPaidMock(altaId);
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: altaId, checkout_url: null as string | null, mock: true };
     }
@@ -265,7 +274,7 @@ export const createCheckout = createServerFn({ method: "POST" })
     const useStripe = hasStripeCheckout();
 
     if (!useStripe) {
-      await markAltaPaid(data.alta_id, `mock_${data.alta_id}`);
+      await markAltaPaidMock(data.alta_id);
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: data.alta_id, checkout_url: null as string | null, mock: true };
     }
@@ -305,13 +314,37 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
       return { ok: true, mock: true };
     }
 
-    const isValid = await verifyCheckoutSession(data.alta_id, data.session_id);
-    if (!isValid) {
+    const session = await retrieveCheckoutSession(data.session_id);
+
+    if (extractAltaIdFromCheckoutSession(session) !== data.alta_id) {
+      throw new Error("La sesión de pago no corresponde a esta solicitud.");
+    }
+
+    if (!isCheckoutSessionComplete(session)) {
       throw new Error("El pago no se ha completado todavía.");
     }
 
-    await markAltaPaid(data.alta_id, data.session_id);
-    return { ok: true, mock: false };
+    const result = await fulfillAltaFromCheckout({
+      altaId: data.alta_id,
+      stripeSessionId: session.id,
+      stripeSubscriptionId: normalizeStripeId(session.subscription),
+      stripeCustomerId: normalizeStripeId(session.customer),
+    });
+
+    if (result.outcome === "still_pending") {
+      throw new Error("No se pudo confirmar el alta todavía. Inténtalo de nuevo en unos segundos.");
+    }
+
+    if (result.outcome === "alta_not_found") {
+      throw new Error("No encontramos tu solicitud.");
+    }
+
+    return {
+      ok: true,
+      mock: false,
+      fulfilled: result.outcome === "fulfilled",
+      outcome: result.outcome,
+    };
   });
 
 /** Resumen público del alta para la página de confirmación (sin datos sensibles). */

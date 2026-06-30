@@ -13,6 +13,7 @@ import { Route as ConfirmacionRouteImport } from './routes/confirmacion'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DevEnrichmentPreviewRouteImport } from './routes/dev.enrichment-preview'
 import { Route as DevDomainPreviewRouteImport } from './routes/dev.domain-preview'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 
 const ConfirmacionRoute = ConfirmacionRouteImport.update({
   id: '/confirmacion',
@@ -34,18 +35,25 @@ const DevDomainPreviewRoute = DevDomainPreviewRouteImport.update({
   path: '/dev/domain-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe/webhook',
+  path: '/api/stripe/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,6 +61,7 @@ export interface FileRoutesById {
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -61,14 +70,21 @@ export interface FileRouteTypes {
     | '/confirmacion'
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
+    | '/api/stripe/webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/confirmacion' | '/dev/domain-preview' | '/dev/enrichment-preview'
+  to:
+    | '/'
+    | '/confirmacion'
+    | '/dev/domain-preview'
+    | '/dev/enrichment-preview'
+    | '/api/stripe/webhook'
   id:
     | '__root__'
     | '/'
     | '/confirmacion'
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
+    | '/api/stripe/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +92,7 @@ export interface RootRouteChildren {
   ConfirmacionRoute: typeof ConfirmacionRoute
   DevDomainPreviewRoute: typeof DevDomainPreviewRoute
   DevEnrichmentPreviewRoute: typeof DevEnrichmentPreviewRoute
+  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -108,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevDomainPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/stripe/webhook': {
+      id: '/api/stripe/webhook'
+      path: '/api/stripe/webhook'
+      fullPath: '/api/stripe/webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -116,6 +140,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConfirmacionRoute: ConfirmacionRoute,
   DevDomainPreviewRoute: DevDomainPreviewRoute,
   DevEnrichmentPreviewRoute: DevEnrichmentPreviewRoute,
+  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

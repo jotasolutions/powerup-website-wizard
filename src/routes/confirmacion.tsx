@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { z } from "zod";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePostHog } from "posthog-js/react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,8 @@ function Confirmacion() {
   const { alta_id, session_id } = Route.useSearch();
   const finalizeCheckoutFn = useServerFn(finalizeCheckout);
   const getAltaSummaryFn = useServerFn(getAltaSummary);
+  const posthog = usePostHog();
+  const confirmedCaptured = useRef(false);
   const [isPowerUpUpgrade, setIsPowerUpUpgrade] = useState(false);
 
   useEffect(() => {
@@ -57,14 +60,26 @@ function Confirmacion() {
 
     getAltaSummaryFn({ data: { alta_id } })
       .then((summary) => {
-        if (summary?.powerup_customer === "yes") {
-          setIsPowerUpUpgrade(true);
+        const isUpgrade = summary?.powerup_customer === "yes";
+        if (isUpgrade) setIsPowerUpUpgrade(true);
+
+        if (!confirmedCaptured.current) {
+          confirmedCaptured.current = true;
+          posthog.capture("wizard_confirmed", {
+            alta_id,
+            powerup_customer: summary?.powerup_customer ?? "unknown",
+            restaurant_name: summary?.restaurant_name,
+          });
         }
       })
       .catch((error) => {
         console.error("No se pudo cargar el resumen del alta:", error);
+        if (!confirmedCaptured.current) {
+          confirmedCaptured.current = true;
+          posthog.capture("wizard_confirmed", { alta_id });
+        }
       });
-  }, [alta_id, getAltaSummaryFn]);
+  }, [alta_id, getAltaSummaryFn, posthog]);
 
   return (
     <main className="container-narrow safe-area-bottom flex min-h-dvh flex-col items-center justify-center py-10 text-center">
@@ -85,9 +100,9 @@ function Confirmacion() {
           {isPowerUpUpgrade ? (
             <>
               Tu upgrade a <strong>página web</strong> activa el plan <strong>Pro Anual</strong> (
-              {formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA) <strong>sin periodo de prueba</strong>{" "}
-              — ya tienes carta PowerUp. El cobro del plan sigue el método de pago que has dejado en
-              Stripe.
+              {formatEUR(PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR)}/año + IVA){" "}
+              <strong>sin periodo de prueba</strong> — ya tienes carta PowerUp. El cobro del plan
+              sigue el método de pago que has dejado en Stripe.
             </>
           ) : (
             <>

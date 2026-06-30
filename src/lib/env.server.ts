@@ -67,6 +67,14 @@ export function hasStripeConfig(): boolean {
   return Boolean(getStripeSecretKey() && getStripeAnnualPriceId());
 }
 
+export function getStripeWebhookSecret(): string | undefined {
+  return firstEnv("STRIPE_WEBHOOK_SECRET");
+}
+
+export function hasStripeWebhookConfig(): boolean {
+  return hasStripeConfig() && Boolean(getStripeWebhookSecret());
+}
+
 export function getGooglePlacesApiKey(): string | undefined {
   return firstEnv(
     "GOOGLE_PLACES_API_KEY",

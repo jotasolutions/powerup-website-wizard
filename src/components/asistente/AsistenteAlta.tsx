@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObjec
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
+import { usePostHog } from "posthog-js/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, ArrowLeft, Check, MessageCircle } from "lucide-react";
@@ -19,10 +20,7 @@ import { AddressAutocomplete } from "./AddressAutocomplete";
 import { SuggestionChips } from "./SuggestionChips";
 import { formatBotText } from "./formatBotText";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
-import {
-  generarSubdominio,
-  formatEUR,
-} from "@/lib/alta-config";
+import { generarSubdominio, formatEUR } from "@/lib/alta-config";
 import { buildAltaPayload } from "@/lib/alta-payload";
 import {
   buildFallbackPlaceProfileFromApiError,
@@ -30,10 +28,7 @@ import {
 } from "@/lib/alta-enrichment-fallback";
 import { resolvePlaceGapMessage } from "@/lib/place-gap";
 import { resolvePowerUpUpgradeMessage } from "@/lib/place-gap.messages";
-import {
-  detectPowerUpFromProfile,
-  resolvePowerUpCustomerForFlow,
-} from "@/lib/powerup-customer";
+import { detectPowerUpFromProfile, resolvePowerUpCustomerForFlow } from "@/lib/powerup-customer";
 import {
   clearAltaDraft,
   getCheckoutScenario,
@@ -100,8 +95,30 @@ function checkoutErrorMessage(error: unknown): string {
   return `Ha habido un problema al continuar al pago: ${detail}`;
 }
 
+/** Clave fija: 1 wizard_started por pestaña. Si el usuario reinicia el wizard en la misma pestaña sin cerrarla, no se vuelve a emitir. */
+const WIZARD_STARTED_SESSION_KEY = "ph_wizard_started";
+
+type PostHogClient = ReturnType<typeof usePostHog>;
+
+function identifyAltaLead(
+  posthog: PostHogClient,
+  altaId: string,
+  props: { whatsapp?: string; contact_name?: string } | undefined,
+  personPropertiesSetForAltaId: { current: string | null },
+) {
+  posthog.identify(altaId);
+  if (!props?.whatsapp && !props?.contact_name) return;
+  if (personPropertiesSetForAltaId.current === altaId) return;
+  personPropertiesSetForAltaId.current = altaId;
+  posthog.setPersonProperties({
+    ...(props.whatsapp && { whatsapp: props.whatsapp }),
+    ...(props.contact_name && { contact_name: props.contact_name }),
+  });
+}
+
 export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel?: boolean }) {
   const navigate = useNavigate();
+  const posthog = usePostHog();
   const queryClient = useQueryClient();
   const [alta, setAlta] = useState<AltaState>(initialAlta);
   const [step, setStep] = useState<StepId>("restaurante");
@@ -124,6 +141,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const restaurantSearchInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
+  const personPropertiesSetForAltaIdRef = useRef<string | null>(null);
   const enrichmentErrorToastedRef = useRef(false);
   const restaurantListId = useId();
   const [restaurantManual, setRestaurantManual] = useState(false);
@@ -171,11 +189,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   }, [viewportHeight, headerHeight, footerChromeHeight]);
 
   const headerSubtitle =
-    step === "resumen"
-      ? "Revisa tu pedido"
-      : step === "contacto"
-        ? "Último paso"
-        : "Alta guiada";
+    step === "resumen" ? "Revisa tu pedido" : step === "contacto" ? "Último paso" : "Alta guiada";
 
   async function handleContactSubmit(
     contact_name: string,
@@ -184,6 +198,14 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   ) {
     void validateWhatsappFn({ data: { phone: whatsapp } }).catch(() => {
       toast.warning("No pudimos verificar el WhatsApp ahora. Lo revisaremos al contactarte.");
+    });
+
+    posthog.capture("wizard_contact_submitted", {
+      restaurant_name: alta.restaurant_name,
+      domain: alta.domain,
+      domain_is_custom: alta.domain_is_custom,
+      powerup_customer: alta.powerup_customer,
+      checkout_scenario: getCheckoutScenario(alta),
     });
 
     pushUser(`${contact_name} · ${whatsapp}`);
@@ -207,6 +229,13 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         setPendingAltaId(altaId);
       }
 
+      identifyAltaLead(
+        posthog,
+        altaId,
+        { whatsapp, contact_name },
+        personPropertiesSetForAltaIdRef,
+      );
+
       saveAltaDraft({
         alta: altaActualizada,
         step: "contacto",
@@ -220,6 +249,14 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       });
 
       if (result.checkout_url) {
+        posthog.capture("wizard_checkout_started", {
+          alta_id: altaId,
+          restaurant_name: alta.restaurant_name,
+          domain: alta.domain,
+          domain_is_custom: alta.domain_is_custom,
+          powerup_customer: alta.powerup_customer,
+          checkout_scenario: getCheckoutScenario(alta),
+        });
         const mode = redirectToCheckout(result.checkout_url);
         if (mode === "popup") {
           setBotTyping(false);
@@ -240,6 +277,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       }
     } catch (e) {
       console.error(e);
+      posthog.captureException(e instanceof Error ? e : new Error(String(e)));
       setBotTyping(false);
       const leadSaved = altaId != null;
       setMessages((m) => [
@@ -264,8 +302,24 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
     const draft = loadAltaDraft();
     if (draft?.alta.restaurant_name) {
+      posthog.capture("wizard_checkout_cancelled_recovered", {
+        restaurant_name: draft.alta.restaurant_name,
+        alta_id: draft.alta_id,
+        has_draft: true,
+      });
       setAlta(draft.alta);
-      if (draft.alta_id) setPendingAltaId(draft.alta_id);
+      if (draft.alta_id) {
+        setPendingAltaId(draft.alta_id);
+        identifyAltaLead(
+          posthog,
+          draft.alta_id,
+          {
+            whatsapp: draft.alta.whatsapp,
+            contact_name: draft.alta.contact_name,
+          },
+          personPropertiesSetForAltaIdRef,
+        );
+      }
       promptedStepsRef.current.add("resumen");
       promptedStepsRef.current.add("contacto");
       setStep("contacto");
@@ -279,12 +333,28 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         },
       ]);
     } else {
+      posthog.capture("wizard_checkout_cancelled_recovered", { has_draft: false });
       toast.message("Pago cancelado", {
         description: "Si quieres retomar el alta, vuelve a completar los pasos.",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recoverFromCancel]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionStorage.getItem(WIZARD_STARTED_SESSION_KEY)) return;
+    sessionStorage.setItem(WIZARD_STARTED_SESSION_KEY, "1");
+
+    const params = new URLSearchParams(window.location.search);
+    posthog.capture("wizard_started", {
+      utm_source: params.get("utm_source"),
+      utm_medium: params.get("utm_medium"),
+      utm_campaign: params.get("utm_campaign"),
+      utm_content: params.get("utm_content"),
+      utm_term: params.get("utm_term"),
+    });
+  }, [posthog]);
 
   // Sincronizar enrichPlace → AltaState (snapshot para pasos y draft; no gate del enabled).
   useEffect(() => {
@@ -338,9 +408,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       });
       if (!enrichmentErrorToastedRef.current) {
         enrichmentErrorToastedRef.current = true;
-        toast.warning(
-          "No pudimos cargar toda la ficha de Google. Puedes continuar igualmente.",
-        );
+        toast.warning("No pudimos cargar toda la ficha de Google. Puedes continuar igualmente.");
       }
     }
   }, [
@@ -396,6 +464,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       powerup_customer: "unknown",
     }));
     enrichmentErrorToastedRef.current = false;
+    posthog.capture("wizard_restaurant_selected", {
+      restaurant_name: picked.name,
+      restaurant_address: picked.address,
+      gmb_place_id: picked.place_id,
+    });
     pushUser(picked.name);
     go("encontrado");
   }
@@ -496,7 +569,19 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
             keyboardInset={keyboardInset}
             mainFooter={
               step === "resumen" ? (
-                <ResumenCtaButton alta={alta} onClick={() => go("contacto")}>
+                <ResumenCtaButton
+                  alta={alta}
+                  onClick={() => {
+                    posthog.capture("wizard_order_reviewed", {
+                      restaurant_name: alta.restaurant_name,
+                      domain: alta.domain,
+                      domain_is_custom: alta.domain_is_custom,
+                      powerup_customer: alta.powerup_customer,
+                      checkout_scenario: checkoutScenario,
+                    });
+                    go("contacto");
+                  }}
+                >
                   {getResumenCta(checkoutScenario, alta)}
                 </ResumenCtaButton>
               ) : undefined
@@ -527,9 +612,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
               <ChatMessage key={m.id} message={m} />
             ))}
             {botTyping && <TypingBubble />}
-            {alta.enrichment_status === "loading" && step === "confirmarInfo" && (
-              <TypingBubble />
-            )}
+            {alta.enrichment_status === "loading" && step === "confirmarInfo" && <TypingBubble />}
             {step === "encontrado" && (
               <PlaceFoundPanel
                 profile={alta.place_profile}
@@ -569,8 +652,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                 : "border-t border-border/60 bg-white/95 backdrop-blur",
             )}
             style={{
-              transform:
-                keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
+              transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
             }}
           >
             <div className={cn("container-narrow", step === "restaurante" ? "pb-4 pt-2" : "py-4")}>
@@ -590,6 +672,10 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                   manual={restaurantManual}
                   setManual={setRestaurantManual}
                   onManual={(name, address) => {
+                    posthog.capture("wizard_restaurant_entered_manually", {
+                      restaurant_name: name,
+                      restaurant_address: address,
+                    });
                     const base = {
                       restaurant_name: name,
                       restaurant_address: address,
@@ -646,6 +732,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                     size="lg"
                     onClick={() => {
                       pushUser("Sí, es correcto");
+                      posthog.capture("wizard_place_confirmed", {
+                        restaurant_name: alta.restaurant_name,
+                        gmb_place_id: alta.gmb_place_id,
+                        enrichment_status: alta.enrichment_status,
+                      });
                       setAlta((a) => ({
                         ...a,
                         powerup_customer: resolvePowerUpCustomerForFlow(
@@ -673,70 +764,90 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
               {step === "brecha" && alta.powerup_customer === "yes" && (
                 <ChoiceRow
-                    options={[
-                      {
-                        label: "Activar página web con mi carta",
-                        onClick: () => {
-                          pushUser("Activar página web con mi carta");
-                          setAlta((a) => ({
-                            ...a,
-                            wants_custom_domain: false,
-                            domain: a.domain || generarSubdominio(a.restaurant_name),
-                            domain_is_custom: false,
-                            domain_price: null,
-                          }));
-                          go("resumen");
-                        },
+                  options={[
+                    {
+                      label: "Activar página web con mi carta",
+                      onClick: () => {
+                        pushUser("Activar página web con mi carta");
+                        posthog.capture("wizard_domain_type_chosen", {
+                          domain_type: "free_subdomain",
+                          powerup_customer: true,
+                          restaurant_name: alta.restaurant_name,
+                        });
+                        setAlta((a) => ({
+                          ...a,
+                          wants_custom_domain: false,
+                          domain: a.domain || generarSubdominio(a.restaurant_name),
+                          domain_is_custom: false,
+                          domain_price: null,
+                        }));
+                        go("resumen");
                       },
-                      {
-                        label: "Quiero dominio personalizado",
-                        onClick: () => {
-                          pushUser("Quiero dominio personalizado");
-                          setAlta((a) => ({
-                            ...a,
-                            wants_custom_domain: true,
-                            domain_is_custom: false,
-                            domain_price: null,
-                          }));
-                          go("elegirDominio");
-                        },
+                    },
+                    {
+                      label: "Quiero dominio personalizado",
+                      onClick: () => {
+                        pushUser("Quiero dominio personalizado");
+                        posthog.capture("wizard_domain_type_chosen", {
+                          domain_type: "custom_domain",
+                          powerup_customer: true,
+                          restaurant_name: alta.restaurant_name,
+                        });
+                        setAlta((a) => ({
+                          ...a,
+                          wants_custom_domain: true,
+                          domain_is_custom: false,
+                          domain_price: null,
+                        }));
+                        go("elegirDominio");
                       },
-                    ]}
+                    },
+                  ]}
                 />
               )}
 
               {step === "brecha" && alta.powerup_customer !== "yes" && (
                 <ChoiceRow
-                    options={[
-                      {
-                        label: "Usar dirección gratis",
-                        onClick: () => {
-                          pushUser("Usar dirección gratis");
-                          const sub = generarSubdominio(alta.restaurant_name);
-                          setAlta((a) => ({
-                            ...a,
-                            wants_custom_domain: false,
-                            domain: sub,
-                            domain_is_custom: false,
-                            domain_price: null,
-                          }));
-                          go("resumen");
-                        },
+                  options={[
+                    {
+                      label: "Usar dirección gratis",
+                      onClick: () => {
+                        pushUser("Usar dirección gratis");
+                        posthog.capture("wizard_domain_type_chosen", {
+                          domain_type: "free_subdomain",
+                          powerup_customer: false,
+                          restaurant_name: alta.restaurant_name,
+                        });
+                        const sub = generarSubdominio(alta.restaurant_name);
+                        setAlta((a) => ({
+                          ...a,
+                          wants_custom_domain: false,
+                          domain: sub,
+                          domain_is_custom: false,
+                          domain_price: null,
+                        }));
+                        go("resumen");
                       },
-                      {
-                        label: "Quiero dominio personalizado",
-                        onClick: () => {
-                          pushUser("Quiero dominio personalizado");
-                          setAlta((a) => ({
-                            ...a,
-                            wants_custom_domain: true,
-                            domain_is_custom: false,
-                            domain_price: null,
-                          }));
-                          go("elegirDominio");
-                        },
+                    },
+                    {
+                      label: "Quiero dominio personalizado",
+                      onClick: () => {
+                        pushUser("Quiero dominio personalizado");
+                        posthog.capture("wizard_domain_type_chosen", {
+                          domain_type: "custom_domain",
+                          powerup_customer: false,
+                          restaurant_name: alta.restaurant_name,
+                        });
+                        setAlta((a) => ({
+                          ...a,
+                          wants_custom_domain: true,
+                          domain_is_custom: false,
+                          domain_price: null,
+                        }));
+                        go("elegirDominio");
                       },
-                    ]}
+                    },
+                  ]}
                 />
               )}
 
@@ -745,6 +856,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                   prefetch={domainPrefetch}
                   onAvailable={(domain, price) => {
                     pushUser(domain);
+                    posthog.capture("wizard_custom_domain_selected", {
+                      domain,
+                      domain_price: price,
+                      restaurant_name: alta.restaurant_name,
+                    });
                     setAlta((a) => ({
                       ...a,
                       domain,
@@ -768,7 +884,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                   checkDomainFn={checkDomainFn}
                 />
               )}
-
             </div>
           </footer>
         </>
@@ -1013,8 +1128,8 @@ function StepContacto({
         </div>
         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
           Te avisamos cuando tu web de{" "}
-          <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista. Sin
-          llamadas ni spam.
+          <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista.
+          Sin llamadas ni spam.
         </p>
       </div>
       <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -1038,8 +1153,8 @@ function StepContacto({
           <p className="text-sm font-medium leading-snug">¿Para qué pedimos tu móvil?</p>
           <p className="text-xs leading-relaxed text-muted-foreground">
             Te avisamos por WhatsApp cuando tu web de{" "}
-            <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista y si
-            necesitas ayuda con el dominio o el pago. No hacemos llamadas ni enviamos spam.
+            <span className="font-medium text-foreground">{alta.restaurant_name}</span> esté lista y
+            si necesitas ayuda con el dominio o el pago. No hacemos llamadas ni enviamos spam.
           </p>
         </div>
       </div>

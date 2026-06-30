@@ -1,6 +1,11 @@
 import Stripe from "stripe";
 import { PLAN_PRO_ANUAL_DIAS_PRUEBA } from "./alta-config";
-import { getStripeAnnualPriceId, getStripeSecretKey, hasStripeConfig } from "./env.server";
+import {
+  getStripeAnnualPriceId,
+  getStripeSecretKey,
+  getStripeWebhookSecret,
+  hasStripeConfig,
+} from "./env.server";
 
 export type PowerUpCustomerStripeFlag = "unknown" | "yes" | "no";
 
@@ -53,6 +58,46 @@ function getProAnnualPriceId(): string {
 
 export function hasStripeCheckout(): boolean {
   return hasStripeConfig();
+}
+
+/** string | objeto expandido de Stripe → id o null. */
+export function normalizeStripeId(
+  value: string | { id: string } | Stripe.Subscription | Stripe.Customer | null | undefined,
+): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && "id" in value && typeof value.id === "string") {
+    return value.id;
+  }
+  return null;
+}
+
+export function extractAltaIdFromCheckoutSession(
+  session: Pick<Stripe.Checkout.Session, "metadata" | "client_reference_id">,
+): string | null {
+  return session.metadata?.alta_id ?? session.client_reference_id ?? null;
+}
+
+export function isCheckoutSessionComplete(
+  session: Pick<Stripe.Checkout.Session, "status">,
+): boolean {
+  return session.status === "complete";
+}
+
+export async function retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+  const stripe = getStripe();
+  return stripe.checkout.sessions.retrieve(sessionId);
+}
+
+export function constructStripeWebhookEvent(
+  rawBody: string,
+  signature: string,
+): Stripe.Event {
+  const secret = getStripeWebhookSecret();
+  if (!secret) {
+    throw new Error("STRIPE_WEBHOOK_SECRET no está configurada.");
+  }
+  return getStripe().webhooks.constructEvent(rawBody, signature, secret);
 }
 
 export async function createAltaCheckoutSession(params: {
@@ -111,12 +156,11 @@ export async function verifyCheckoutSession(
   altaId: string,
   sessionId: string,
 ): Promise<boolean> {
-  const stripe = getStripe();
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const session = await retrieveCheckoutSession(sessionId);
 
-  if (session.metadata?.alta_id !== altaId && session.client_reference_id !== altaId) {
+  if (extractAltaIdFromCheckoutSession(session) !== altaId) {
     return false;
   }
 
-  return session.status === "complete" || session.payment_status === "paid";
+  return isCheckoutSessionComplete(session);
 }

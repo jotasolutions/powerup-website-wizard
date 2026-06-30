@@ -38,6 +38,8 @@ export const altas = pgTable("altas", {
   consentIp: text("consent_ip"),
   status: altaStatusEnum("status").notNull().default("pending_payment"),
   stripeSessionId: text("stripe_session_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripeCustomerId: text("stripe_customer_id"),
 });
 
 export const placeEnrichments = pgTable("place_enrichments", {
