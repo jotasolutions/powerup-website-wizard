@@ -20,26 +20,6 @@ export default defineConfig({
     host: true,
     port: 8080,
     strictPort: true,
-    proxy: {
-      "/ingest/static": {
-        target: "https://eu-assets.i.posthog.com",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ingest/, ""),
-        secure: false,
-      },
-      "/ingest/array": {
-        target: "https://eu-assets.i.posthog.com",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ingest/, ""),
-        secure: false,
-      },
-      "/ingest": {
-        target: "https://eu.i.posthog.com",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ingest/, ""),
-        secure: false,
-      },
-    },
   },
   resolve: {
     alias: {

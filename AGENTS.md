@@ -27,6 +27,14 @@ En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben 
 
 El cliente PostHog usa `api_host: /ingest`. En producción, `vercel.json` reescribe `/ingest/*` hacia PostHog EU; en local, Nitro `routeRules` hace el mismo proxy (el proxy de Vite no aplica con TanStack Start). **`VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` debe existir en el build de Vercel** o el SDK no enviará eventos (no verás peticiones a `/ingest` en Network).
 
+## PostHog (proyecto canónico)
+
+- **Proyecto EU:** [212884](https://eu.posthog.com/project/212884/) — única fuente de verdad para eventos del wizard.
+- **Dashboard:** [792288](https://eu.posthog.com/project/212884/dashboard/792288) (creado por el wizard).
+- **No usar** el proyecto US `491194` (`us.posthog.com`) — quedó del warehouse wizard por error; la app no envía datos allí.
+- **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local y en Vercel Production (**build** + runtime para webhook).
+- **Authorized URLs** (PostHog → Project Settings): `http://localhost:8080` y el dominio Vercel de producción.
+
 ## Flujo principal
 
 1. UI: `src/components/asistente/AsistenteAlta.tsx`

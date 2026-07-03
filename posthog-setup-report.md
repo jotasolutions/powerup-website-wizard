@@ -49,13 +49,24 @@ We've built a dashboard and five insights to monitor the sign-up funnel:
 - [Tasa de checkout completado (wizard)](https://eu.posthog.com/project/212884/insights/VAnIwzJn) — ratio of fulfilled altas to checkout sessions started
 - [Recuperaciones de checkout cancelado (wizard)](https://eu.posthog.com/project/212884/insights/xh9cKUvK) — users who returned after abandoning Stripe
 
+## Funnel: qué evento usar
+
+| Paso funnel | Evento recomendado (cliente) | Alternativa servidor |
+|-------------|------------------------------|----------------------|
+| Entrada | `wizard_started` | — |
+| Lead guardado | `wizard_contact_submitted` | `alta_lead_saved` |
+| Checkout | `wizard_checkout_started` | `checkout_session_created` |
+| Pago confirmado | `alta_fulfilled` | — |
+
+Identidad: `identify(alta_id)` en `identifyAltaLead` tras `saveAlta` y en `recoverFromCancel` (`AsistenteAlta.tsx`). WhatsApp solo como propiedad de persona, nunca como `distinct_id`.
+
 ## Verify before merging
 
-- [ ] Run a full production build (`bun run build`) and fix any lint or type errors introduced by the generated code.
-- [ ] Run the test suite — call sites that were rewritten or instrumented may need updated mocks or fixtures.
+- [x] Run a full production build (`npm run build`) and fix any lint or type errors introduced by the generated code.
+- [x] Run the test suite — call sites that were rewritten or instrumented may need updated mocks or fixtures.
 - [ ] Add `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` and `VITE_PUBLIC_POSTHOG_HOST` to Vercel's Environment Variables (Settings → Environment Variables → Production) so events are captured in production.
 - [ ] Wire source-map upload into CI so production stack traces de-minify in PostHog error tracking.
-- [ ] Confirm the returning-visitor path also calls `identify` — the current implementation identifies only at `wizard_contact_submitted`. A user returning in a new session after checkout will be on an anonymous distinct ID until they re-submit.
+- [x] Returning-visitor path calls `identify(alta_id)` via `recoverFromCancel` when hay draft con `alta_id`; no se usa WhatsApp como identificador.
 
 ### Agent skill
 

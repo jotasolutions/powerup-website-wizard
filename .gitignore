@@ -35,3 +35,7 @@ dist-ssr
 *.sw?
 
 .vercel/
+
+# PostHog wizard artifacts (regenerable / proyecto US obsoleto)
+.claude/
+posthog-warehouse-report.md
