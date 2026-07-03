@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
+import { getPostHogClient } from "./posthog-server";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
@@ -23,7 +24,11 @@ import {
   hasNamecheapConfig,
   shouldMockDomainCheck,
 } from "./env.server";
-import { searchHospitalityBusinesses, resolveAddressSuggestions, getSimplifiedAddress } from "./google-places.server";
+import {
+  searchHospitalityBusinesses,
+  resolveAddressSuggestions,
+  getSimplifiedAddress,
+} from "./google-places.server";
 import { enrichPlaceProfile } from "./place-enrichment.server";
 import { checkDomainWithNamecheap } from "./namecheap.server";
 import { normalizePowerUpCustomerForPersist } from "./powerup-customer";
@@ -167,23 +172,25 @@ const AltaConsentFields = z.object({
   consent_user_agent: z.string().nullable().optional(),
 });
 
-const AltaInput = z.object({
-  restaurant_name: z.string().min(1),
-  restaurant_address: z.string().nullable(),
-  gmb_place_id: z.string().nullable(),
-  has_existing_website: z.boolean(),
-  existing_website_url: z.string().nullable(),
-  wants_custom_domain: z.boolean(),
-  domain: z.string().min(1),
-  domain_is_custom: z.boolean(),
-  powerup_customer: z.enum(["unknown", "yes", "no"]),
-  onetime_fee_concept: z.enum(["gestion", "dominio"]).nullable(),
-  onetime_fee_amount: z.number().nullable(),
-  contact_name: z.string().min(1),
-  whatsapp: z.string().min(3),
-  /** Origen del navegador (p. ej. http://localhost:8081) para URLs de vuelta de Stripe. */
-  origin: z.string().url().optional(),
-}).merge(AltaConsentFields);
+const AltaInput = z
+  .object({
+    restaurant_name: z.string().min(1),
+    restaurant_address: z.string().nullable(),
+    gmb_place_id: z.string().nullable(),
+    has_existing_website: z.boolean(),
+    existing_website_url: z.string().nullable(),
+    wants_custom_domain: z.boolean(),
+    domain: z.string().min(1),
+    domain_is_custom: z.boolean(),
+    powerup_customer: z.enum(["unknown", "yes", "no"]),
+    onetime_fee_concept: z.enum(["gestion", "dominio"]).nullable(),
+    onetime_fee_amount: z.number().nullable(),
+    contact_name: z.string().min(1),
+    whatsapp: z.string().min(3),
+    /** Origen del navegador (p. ej. http://localhost:8081) para URLs de vuelta de Stripe. */
+    origin: z.string().url().optional(),
+  })
+  .merge(AltaConsentFields);
 
 function toInsertPayload(
   data: z.infer<typeof AltaInput>,
@@ -248,6 +255,21 @@ export const saveAlta = createServerFn({ method: "POST" })
     const powerupCustomer = normalizePowerUpCustomerForPersist(data.powerup_customer);
     const altaId = await insertAlta(toInsertPayload(data, powerupCustomer));
 
+    const posthog = getPostHogClient();
+    if (posthog) {
+      posthog.capture({
+        distinctId: altaId,
+        event: "alta_lead_saved",
+        properties: {
+          alta_id: altaId,
+          restaurant_name: data.restaurant_name,
+          has_gmb: data.gmb_place_id != null,
+          domain_is_custom: data.domain_is_custom,
+          powerup_customer: powerupCustomer,
+        },
+      });
+    }
+
     return { alta_id: altaId, saved: true as const };
   });
 
@@ -279,8 +301,7 @@ export const createCheckout = createServerFn({ method: "POST" })
       return { alta_id: data.alta_id, checkout_url: null as string | null, mock: true };
     }
 
-    const onetimeFeeAmount =
-      alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
+    const onetimeFeeAmount = alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
 
     const powerupCustomer = normalizePowerUpCustomerForPersist(alta.powerupCustomer);
 
@@ -295,6 +316,20 @@ export const createCheckout = createServerFn({ method: "POST" })
 
     if (!session.url) {
       throw new Error("Stripe no devolvió una URL de checkout.");
+    }
+
+    const posthog = getPostHogClient();
+    if (posthog) {
+      posthog.capture({
+        distinctId: data.alta_id,
+        event: "checkout_session_created",
+        properties: {
+          alta_id: data.alta_id,
+          restaurant_name: alta.restaurantName,
+          powerup_customer: powerupCustomer,
+          stripe_session_id: session.id,
+        },
+      });
     }
 
     return { alta_id: data.alta_id, checkout_url: session.url, mock: false };

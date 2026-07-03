@@ -143,6 +143,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
   const personPropertiesSetForAltaIdRef = useRef<string | null>(null);
   const enrichmentErrorToastedRef = useRef(false);
+  const lastCapturedSearchErrorRef = useRef<string | null>(null);
   const restaurantListId = useId();
   const [restaurantManual, setRestaurantManual] = useState(false);
 
@@ -451,6 +452,16 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       setRestaurantManual(false);
     }
   }, [step, resetRestaurantSearch]);
+
+  useEffect(() => {
+    if (!restaurantSearchError) return;
+    if (restaurantSearchError === lastCapturedSearchErrorRef.current) return;
+    lastCapturedSearchErrorRef.current = restaurantSearchError;
+    posthog.capture("wizard_restaurant_search_error", {
+      error: restaurantSearchError,
+      query: restaurantQuery,
+    });
+  }, [restaurantSearchError, restaurantQuery, posthog]);
 
   function handleRestaurantPick(picked: GmbResult) {
     setAlta((a) => ({

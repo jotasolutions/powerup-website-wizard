@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePostHog } from "posthog-js/react";
 import { Check, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,7 @@ type Props = {
 };
 
 export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn }: Props) {
+  const posthog = usePostHog();
   const [domain, setDomain] = useState("");
   const [manualLoading, setManualLoading] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
@@ -51,7 +53,9 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
   const prefetchPrimary = status === "ready" && !manualResult ? outcome?.primary : null;
   const prefetchMore = status === "ready" && !manualResult ? (outcome?.moreAlternatives ?? []) : [];
   const isSuggestedAlternative = Boolean(
-    prefetchPrimary && outcome?.unavailableCandidate && outcome.unavailableCandidate !== prefetchPrimary.domain,
+    prefetchPrimary &&
+    outcome?.unavailableCandidate &&
+    outcome.unavailableCandidate !== prefetchPrimary.domain,
   );
 
   useEffect(() => {
@@ -63,7 +67,11 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
     }
   }, [candidate, manualResult, prefetchPrimary, status]);
 
-  const norm = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const norm = domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "");
   const valid = /^[a-z0-9-]+(\.[a-z]{2,})+$/.test(norm);
 
   async function submitManual(e: React.FormEvent) {
@@ -76,14 +84,26 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
       const r = await checkDomainFn({ data: { domain: norm } });
       if (r.available) {
         setManualResult({ kind: "available", domain: norm, price: r.price });
+        posthog.capture("wizard_domain_checked_manually", {
+          domain: norm,
+          result: "available",
+          price: r.price,
+        });
       } else {
         setManualResult({
           kind: "unavailable",
           domain: norm,
           alternatives: r.alternatives.slice(0, 3),
         });
+        posthog.capture("wizard_domain_checked_manually", {
+          domain: norm,
+          result: "unavailable",
+          alternatives_count: r.alternatives.length,
+        });
         if (r.alternatives.length === 0) {
-          setManualError(`“${norm}” no está disponible y no hemos encontrado alternativas ahora mismo.`);
+          setManualError(
+            `"${norm}" no está disponible y no hemos encontrado alternativas ahora mismo.`,
+          );
         }
       }
     } catch (err) {
@@ -158,14 +178,16 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
 
       {prefetchMore.length > 0 && (
         <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-          <div className="text-xs font-medium text-foreground">{ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL}</div>
+          <div className="text-xs font-medium text-foreground">
+            {ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL}
+          </div>
           <div className="space-y-2">{prefetchMore.map(renderAlternativeButton)}</div>
         </div>
       )}
 
       {status === "ready" && !prefetchPrimary && !manualResult && (
         <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-          No hemos encontrado un dominio sugerido para “{candidate}”. Prueba otro nombre abajo.
+          No hemos encontrado un dominio sugerido para "{candidate}". Prueba otro nombre abajo.
         </div>
       )}
 
@@ -198,22 +220,27 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
         </div>
       )}
 
-      {manualResult?.kind === "available" &&
-        renderPrimaryCard(manualResult, false)}
+      {manualResult?.kind === "available" && renderPrimaryCard(manualResult, false)}
 
       {manualResult?.kind === "unavailable" && !manualError && (
         <>
           <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <X className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 break-words">“{manualResult.domain}” no está disponible.</span>
+              <span className="min-w-0 break-words">
+                "{manualResult.domain}" no está disponible.
+              </span>
             </div>
             <NamecheapBadge />
           </div>
           {manualResult.alternatives.length > 0 && (
             <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-              <div className="text-xs font-medium text-foreground">{ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL}</div>
-              <div className="space-y-2">{manualResult.alternatives.map(renderAlternativeButton)}</div>
+              <div className="text-xs font-medium text-foreground">
+                {ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL}
+              </div>
+              <div className="space-y-2">
+                {manualResult.alternatives.map(renderAlternativeButton)}
+              </div>
             </div>
           )}
         </>
