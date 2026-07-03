@@ -114,6 +114,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+const posthogApiKey = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "";
+const posthogUiHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || "https://eu.posthog.com";
+
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="es" translate="no" className="notranslate">
@@ -122,10 +125,10 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body translate="no" className="notranslate">
         <PostHogProvider
-          apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN!}
+          apiKey={posthogApiKey}
           options={{
             api_host: "/ingest",
-            ui_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST || "https://eu.posthog.com",
+            ui_host: posthogUiHost,
             defaults: "2025-05-24",
             capture_exceptions: true,
             debug: import.meta.env.DEV,

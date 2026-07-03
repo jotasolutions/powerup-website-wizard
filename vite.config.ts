@@ -9,6 +9,12 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const tslibEsm = require.resolve("tslib/tslib.es6.mjs");
 
+const posthogRouteRules = {
+  "/ingest/static/**": { proxy: "https://eu-assets.i.posthog.com/static/**" },
+  "/ingest/array/**": { proxy: "https://eu-assets.i.posthog.com/array/**" },
+  "/ingest/**": { proxy: "https://eu.i.posthog.com/**" },
+} as const;
+
 export default defineConfig({
   server: {
     host: true,
@@ -48,6 +54,7 @@ export default defineConfig({
     }),
     nitro({
       preset: "vercel",
+      routeRules: posthogRouteRules,
       alias: {
         tslib: tslibEsm,
       },

@@ -25,6 +25,8 @@ npm run dev            # http://localhost:8080
 
 En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
 
+El cliente PostHog usa `api_host: /ingest`. En producción, `vercel.json` reescribe `/ingest/*` hacia PostHog EU; en local, Nitro `routeRules` hace el mismo proxy (el proxy de Vite no aplica con TanStack Start). **`VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` debe existir en el build de Vercel** o el SDK no enviará eventos (no verás peticiones a `/ingest` en Network).
+
 ## Flujo principal
 
 1. UI: `src/components/asistente/AsistenteAlta.tsx`
