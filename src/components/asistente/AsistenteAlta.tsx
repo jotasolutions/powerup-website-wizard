@@ -261,6 +261,10 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         const mode = redirectToCheckout(result.checkout_url);
         if (mode === "popup") {
           setBotTyping(false);
+          toast.info("Pago abierto en nueva pestaña", {
+            description:
+              "Si no aparece, permite ventanas emergentes en el navegador.",
+          });
           setMessages((m) => [
             ...m,
             {
@@ -281,15 +285,19 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       posthog.captureException(e instanceof Error ? e : new Error(String(e)));
       setBotTyping(false);
       const leadSaved = altaId != null;
+      const errorText = leadSaved
+        ? `Tu contacto ya está guardado. ${checkoutErrorMessage(e)}`
+        : checkoutErrorMessage(e);
+      toast.error(leadSaved ? "No pudimos abrir el pago" : "No pudimos guardar tu contacto", {
+        description: checkoutErrorMessage(e),
+      });
       setMessages((m) => [
         ...m,
         {
           id: uid(),
           role: "bot",
           kind: "text",
-          text: leadSaved
-            ? `Tu contacto ya está guardado. ${checkoutErrorMessage(e)}`
-            : checkoutErrorMessage(e),
+          text: errorText,
         },
       ]);
       setStep("contacto");

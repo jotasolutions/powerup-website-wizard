@@ -138,7 +138,7 @@ export async function fulfillAltaFromCheckout(
 }
 
 /** Camino mock sin Stripe: marca paid con session id sintético. */
-export async function markAltaPaidMock(altaId: string): Promise<void> {
+export async function markAltaPaidMock(altaId: string): Promise<FulfillAltaOutcome> {
   const updated = await getDb()
     .update(altas)
     .set({ status: "paid", stripeSessionId: `mock_${altaId}` })
@@ -146,15 +146,19 @@ export async function markAltaPaidMock(altaId: string): Promise<void> {
     .returning({ id: altas.id });
 
   if (updated.length > 0) {
-    return;
+    return { outcome: "fulfilled" };
   }
 
   const existing = await getAltaById(altaId);
-  if (existing?.status === "paid") {
-    return;
+  if (!existing) {
+    return { outcome: "alta_not_found" };
   }
 
-  throw new Error("No se pudo actualizar el alta.");
+  if (existing.status === "paid") {
+    return { outcome: "already_fulfilled" };
+  }
+
+  return { outcome: "still_pending" };
 }
 
 export async function getAltaById(altaId: string) {

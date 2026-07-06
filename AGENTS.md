@@ -7,9 +7,11 @@ Asistente de alta de páginas web para restaurantes (PowerUp Menu). Stack: **Tan
 ```bash
 npm install
 cp .env.example .env   # configurar DATABASE_URL, STRIPE_*, APP_URL
-npm run db:push        # aplicar schema en Neon
+npm run db:push        # aplicar schema en Neon (obligatorio tras cambios en src/db/schema.ts)
 npm run dev            # http://localhost:8080
 ```
+
+Si `saveAlta` falla con `Failed query: insert into "altas"`, el esquema de Neon está desactualizado: vuelve a ejecutar `npm run db:push` (en CI o sin TTY usa `npm run db:push -- --force`).
 
 ## Variables de entorno
 
@@ -22,6 +24,7 @@ npm run dev            # http://localhost:8080
 | `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
 | `STRIPE_WEBHOOK_SECRET` | Secreto del endpoint webhook (`whsec_…`); fulfillment autoritativo en `POST /api/stripe/webhook` |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
+| `SLACK_WEBHOOK_URL` | Incoming Webhook de Slack para avisos de lead (`saveAlta`) y alta pagada (webhook Stripe) |
 
 En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
 
@@ -40,6 +43,15 @@ El cliente PostHog usa `api_host: /ingest`. En producción, `vercel.json` reescr
 1. UI: `src/components/asistente/AsistenteAlta.tsx`
 2. Server fn: `src/lib/alta.functions.ts` → `saveAlta` + `createCheckout` (UI); fulfillment `paid` vía webhook `POST /api/stripe/webhook`
 3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout` (UX idempotente; autoridad en webhook)
+
+### Notificaciones Slack
+
+Con `SLACK_WEBHOOK_URL` configurada (runtime en Vercel), el servidor envía dos mensajes por alta completa:
+
+1. **Lead** — al guardar WhatsApp en `saveAlta` (pendiente de pago).
+2. **Alta pagada** — al confirmar el pago (`stripe_webhook`, `finalize_checkout` o `mock_checkout` en local sin Stripe).
+
+Si el usuario abandona antes de pagar, solo llega el mensaje de lead. Los avisos son fire-and-forget: un fallo de Slack no bloquea el webhook ni el checkout.
 
 ### Prefetch de dominio (etapa 6)
 

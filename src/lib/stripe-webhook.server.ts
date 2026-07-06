@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { dispatchAltaPaidNotification } from "./alta-slack.server";
 import { fulfillAltaFromCheckout } from "./db-server";
 import {
   extractAltaIdFromCheckoutSession,
@@ -61,6 +62,8 @@ async function handleCheckoutSessionCompleted(
   });
 
   if (result.outcome === "fulfilled") {
+    dispatchAltaPaidNotification(altaId, "stripe_webhook");
+
     const posthog = getPostHogClient();
     if (posthog) {
       posthog.capture({

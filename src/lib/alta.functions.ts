@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
+import { dispatchAltaLeadNotification, dispatchAltaPaidNotification } from "./alta-slack.server";
 import { getPostHogClient } from "./posthog-server";
 import {
   createAltaCheckoutSession,
@@ -33,10 +34,11 @@ import { enrichPlaceProfile } from "./place-enrichment.server";
 import { checkDomainWithNamecheap } from "./namecheap.server";
 import { normalizePowerUpCustomerForPersist } from "./powerup-customer";
 import { getClientIpFromRequest } from "./request-context.server";
-
-function normalizeWhatsapp(phone: string): string {
-  return phone.replace(/[^\d]/g, "");
-}
+import {
+  isTestWhatsappBypass,
+  normalizeWhatsappDigits,
+} from "./whatsapp-validate.server";
+import WhatsappRepository from "@/server/repositories/WhatsappRepository";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // validate-whatsapp: comprueba si el número existe en WhatsApp vía Evolution.
@@ -44,13 +46,17 @@ function normalizeWhatsapp(phone: string): string {
 export const validateWhatsapp = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ phone: z.string().min(3) }).parse(input))
   .handler(async ({ data }) => {
-    if (!hasEvolutionConfig()) {
-      throw new Error("Falta configuración de Evolution API en las variables de entorno.");
-    }
-
-    const phone = normalizeWhatsapp(data.phone);
+    const phone = normalizeWhatsappDigits(data.phone);
     if (phone.length < 8) {
       throw new Error("invalid_whatsapp_number");
+    }
+
+    if (isTestWhatsappBypass(phone)) {
+      return { valid: true as const, test_bypass: true as const };
+    }
+
+    if (!hasEvolutionConfig()) {
+      throw new Error("Falta configuración de Evolution API en las variables de entorno.");
     }
 
     const exists = await WhatsappRepository.doesWhatsappNumExists(phone);
@@ -224,10 +230,15 @@ export const startCheckout = createServerFn({ method: "POST" })
     const powerupCustomer = normalizePowerUpCustomerForPersist(data.powerup_customer);
     const altaId = await insertAlta(toInsertPayload(data, powerupCustomer));
 
+    dispatchAltaLeadNotification(altaId);
+
     const useStripe = hasStripeCheckout();
 
     if (!useStripe) {
-      await markAltaPaidMock(altaId);
+      const result = await markAltaPaidMock(altaId);
+      if (result.outcome === "fulfilled") {
+        dispatchAltaPaidNotification(altaId, "mock_checkout");
+      }
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: altaId, checkout_url: null as string | null, mock: true };
     }
@@ -254,6 +265,8 @@ export const saveAlta = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const powerupCustomer = normalizePowerUpCustomerForPersist(data.powerup_customer);
     const altaId = await insertAlta(toInsertPayload(data, powerupCustomer));
+
+    dispatchAltaLeadNotification(altaId);
 
     const posthog = getPostHogClient();
     if (posthog) {
@@ -296,7 +309,10 @@ export const createCheckout = createServerFn({ method: "POST" })
     const useStripe = hasStripeCheckout();
 
     if (!useStripe) {
-      await markAltaPaidMock(data.alta_id);
+      const result = await markAltaPaidMock(data.alta_id);
+      if (result.outcome === "fulfilled") {
+        dispatchAltaPaidNotification(data.alta_id, "mock_checkout");
+      }
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: data.alta_id, checkout_url: null as string | null, mock: true };
     }
@@ -372,6 +388,10 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
 
     if (result.outcome === "alta_not_found") {
       throw new Error("No encontramos tu solicitud.");
+    }
+
+    if (result.outcome === "fulfilled") {
+      dispatchAltaPaidNotification(data.alta_id, "finalize_checkout");
     }
 
     return {

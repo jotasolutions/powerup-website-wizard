@@ -160,6 +160,14 @@ export function getNamecheapUsdToEurRate(): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+export function getSlackWebhookUrl(): string | undefined {
+  return firstEnv("SLACK_WEBHOOK_URL");
+}
+
+export function hasSlackConfig(): boolean {
+  return Boolean(getSlackWebhookUrl());
+}
+
 /** Usa mock solo si MOCK_DOMAIN_CHECK=true o si faltan credenciales de Namecheap. */
 export function shouldMockDomainCheck(): boolean {
   const raw = firstEnv("MOCK_DOMAIN_CHECK");
