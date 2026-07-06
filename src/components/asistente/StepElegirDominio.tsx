@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { formatEUR } from "@/lib/alta-config";
 import type { DomainCheckResult } from "@/lib/domain-check.types";
 import {
+  ALTA_DOMAIN_CHECK_CTA,
   ALTA_DOMAIN_DEGRADED_BANNER,
   ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL,
   ALTA_DOMAIN_SEARCH_PLACEHOLDER,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/alta-copy";
 import { inputStepConfig } from "@/lib/input-step-config";
 import type { DomainPrefetchView } from "@/hooks/useDomainPrefetch";
+import { cn } from "@/lib/utils";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 
 const assistantInputClass = "text-base md:text-base";
@@ -52,11 +54,6 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
   const { status, candidate, freeSubdomain, outcome } = prefetch;
   const prefetchPrimary = status === "ready" && !manualResult ? outcome?.primary : null;
   const prefetchMore = status === "ready" && !manualResult ? (outcome?.moreAlternatives ?? []) : [];
-  const isSuggestedAlternative = Boolean(
-    prefetchPrimary &&
-    outcome?.unavailableCandidate &&
-    outcome.unavailableCandidate !== prefetchPrimary.domain,
-  );
 
   useEffect(() => {
     if (manualResult) return;
@@ -73,6 +70,21 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "");
   const valid = /^[a-z0-9-]+(\.[a-z]{2,})+$/.test(norm);
+
+  const manualAvailable =
+    manualResult?.kind === "available"
+      ? { domain: manualResult.domain, price: manualResult.price }
+      : null;
+  const prefetchAvailable =
+    prefetchPrimary && norm === prefetchPrimary.domain ? prefetchPrimary : null;
+  const availablePrimary = manualAvailable ?? prefetchAvailable;
+  const showPrimaryAsSuggestion = Boolean(
+    !manualAvailable &&
+      prefetchAvailable &&
+      outcome?.unavailableCandidate &&
+      outcome.unavailableCandidate !== prefetchAvailable.domain,
+  );
+  const showCheckButton = valid && availablePrimary == null;
 
   async function submitManual(e: React.FormEvent) {
     e.preventDefault();
@@ -174,8 +186,6 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
         </div>
       )}
 
-      {prefetchPrimary && renderPrimaryCard(prefetchPrimary, isSuggestedAlternative)}
-
       {prefetchMore.length > 0 && (
         <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
           <div className="text-xs font-medium text-foreground">
@@ -191,7 +201,13 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
         </div>
       )}
 
-      <form onSubmit={submitManual} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <form
+        onSubmit={submitManual}
+        className={cn(
+          "flex flex-col gap-2",
+          showCheckButton && "sm:flex-row sm:items-center",
+        )}
+      >
         <KeyboardAwareField className="min-w-0 flex-1">
           <Input
             placeholder={ALTA_DOMAIN_SEARCH_PLACEHOLDER}
@@ -205,22 +221,29 @@ export function StepElegirDominio({ prefetch, onAvailable, onSkip, checkDomainFn
             {...inputStepConfig.domain}
           />
         </KeyboardAwareField>
-        <Button
-          type="submit"
-          disabled={!valid || manualLoading}
-          className="h-11 w-full shrink-0 sm:w-auto"
-        >
-          {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comprobar"}
-        </Button>
+        {showCheckButton ? (
+          <Button
+            type="submit"
+            disabled={manualLoading}
+            className="h-11 w-full shrink-0 sm:w-auto"
+          >
+            {manualLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              ALTA_DOMAIN_CHECK_CTA
+            )}
+          </Button>
+        ) : null}
       </form>
+
+      {availablePrimary &&
+        renderPrimaryCard(availablePrimary, showPrimaryAsSuggestion)}
 
       {manualError && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           <X className="h-3.5 w-3.5" /> {manualError}
         </div>
       )}
-
-      {manualResult?.kind === "available" && renderPrimaryCard(manualResult, false)}
 
       {manualResult?.kind === "unavailable" && !manualError && (
         <>

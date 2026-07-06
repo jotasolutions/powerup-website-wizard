@@ -70,6 +70,8 @@ export const ALTA_DOMAIN_SEARCH_PLACEHOLDER = "turestaurante.es";
 
 export const ALTA_DOMAIN_USE_SUGGESTION_CTA = "Usar este dominio";
 
+export const ALTA_DOMAIN_CHECK_CTA = "Comprobar dominio";
+
 export const ALTA_DOMAIN_OTHER_ALTERNATIVES_LABEL = "Otras opciones disponibles";
 
 export const ALTA_DOMAIN_DEGRADED_BANNER =
