@@ -69,6 +69,12 @@ import { useDomainPrefetch } from "@/hooks/useDomainPrefetch";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 import { cn } from "@/lib/utils";
 import { isStepEntry } from "@/lib/step-entry-analytics";
+import {
+  initialSearchCaptureState,
+  nextSearchCaptureState,
+  resolvePlaceOrigin,
+  shouldCaptureSearchPerformed,
+} from "@/lib/wizard-search-analytics";
 import { toast } from "sonner";
 
 type StepId =
@@ -146,6 +152,8 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const personPropertiesSetForAltaIdRef = useRef<string | null>(null);
   const enrichmentErrorToastedRef = useRef(false);
   const lastCapturedSearchErrorRef = useRef<string | null>(null);
+  const searchCaptureRef = useRef(initialSearchCaptureState);
+  const wasRestaurantFetchingRef = useRef(false);
   const restaurantListId = useId();
   const [restaurantManual, setRestaurantManual] = useState(false);
 
@@ -480,6 +488,26 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   }, [step, posthog, alta.restaurant_name, alta.powerup_customer]);
 
   useEffect(() => {
+    const trimmed = restaurantQuery.trim();
+    const wasFetching = wasRestaurantFetchingRef.current;
+    wasRestaurantFetchingRef.current = restaurantSearchFetching;
+
+    if (
+      shouldCaptureSearchPerformed({
+        isFetching: restaurantSearchFetching,
+        wasFetching,
+        trimmedQuery: trimmed,
+        lastCapturedQuery: searchCaptureRef.current.lastCapturedQuery,
+        onRestaurantStep: step === "restaurante",
+      })
+    ) {
+      const next = nextSearchCaptureState(searchCaptureRef.current, trimmed);
+      searchCaptureRef.current = next.state;
+      posthog.capture("wizard_search_performed", next.properties);
+    }
+  }, [restaurantSearchFetching, restaurantQuery, step, posthog]);
+
+  useEffect(() => {
     if (!restaurantSearchError) return;
     if (restaurantSearchError === lastCapturedSearchErrorRef.current) return;
     lastCapturedSearchErrorRef.current = restaurantSearchError;
@@ -783,6 +811,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                         restaurant_name: alta.restaurant_name,
                         gmb_place_id: alta.gmb_place_id,
                         enrichment_status: alta.enrichment_status,
+                        place_origin: resolvePlaceOrigin(alta.gmb_place_id),
                       });
                       setAlta((a) => ({
                         ...a,
