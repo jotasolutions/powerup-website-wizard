@@ -180,7 +180,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   // Prefetch en paralelo al enrichment; resultado vive en React Query (queryKey por nombre).
   const domainPrefetch = useDomainPrefetch(alta.restaurant_name, checkDomainFn);
   const checkoutScenario = getCheckoutScenario(alta);
-  const { keyboardInset, viewportHeight } = useVisualViewport();
+  const { keyboardInset, viewportHeight, viewportOffsetTop, isKeyboardOpen } = useVisualViewport();
   const headerHeight = useElementHeight(headerRef);
   const footerChromeHeight = useElementHeight(footerChromeRef);
   const isCheckoutMode = step === "resumen" || step === "contacto";
@@ -553,8 +553,16 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
 
   const stepIndex = stepIndexFor(step);
 
+  const shellStyle =
+    viewportHeight > 0
+      ? {
+          height: viewportHeight,
+          marginTop: viewportOffsetTop,
+        }
+      : undefined;
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden" style={shellStyle}>
       {/* Header */}
       <header
         ref={headerRef}
@@ -632,7 +640,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
               submitCta={getContactoCta(checkoutScenario)}
               onSubmit={handleContactSubmit}
               onFocusInput={scrollInputIntoView}
-              keyboardInset={keyboardInset}
             />
           ) : null}
         </div>
@@ -644,6 +651,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
               "container-narrow min-h-0 flex-1 space-y-4 overflow-y-auto py-6",
               step === "restaurante" && "pb-2",
             )}
+            style={
+              isKeyboardOpen && step === "restaurante"
+                ? { paddingBottom: footerChromeHeight + 8 }
+                : undefined
+            }
           >
             {messages.map((m) => (
               <ChatMessage key={m.id} message={m} />
@@ -688,9 +700,6 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                 ? "bg-transparent"
                 : "border-t border-border/60 bg-white/95 backdrop-blur",
             )}
-            style={{
-              transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
-            }}
           >
             <div className={cn("container-narrow", step === "restaurante" ? "pb-4 pt-2" : "py-4")}>
               {step === "restaurante" && (
@@ -705,6 +714,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
                   suggestionsMaxHeight={suggestionsMaxHeight}
                   searchInputRef={restaurantSearchInputRef}
                   footerChromeRef={footerChromeRef}
+                  onSearchFocus={scrollInputIntoView}
                   onPick={handleRestaurantPick}
                   manual={restaurantManual}
                   setManual={setRestaurantManual}
@@ -986,6 +996,7 @@ function StepRestaurante({
   suggestionsMaxHeight,
   searchInputRef,
   footerChromeRef,
+  onSearchFocus,
   onPick,
   manual,
   setManual,
@@ -1001,6 +1012,7 @@ function StepRestaurante({
   suggestionsMaxHeight: number;
   searchInputRef: RefObject<HTMLInputElement | null>;
   footerChromeRef: RefObject<HTMLDivElement | null>;
+  onSearchFocus?: (el: HTMLElement) => void;
   onPick: (r: GmbResult) => void;
   manual: boolean;
   setManual: (manual: boolean) => void;
@@ -1022,6 +1034,7 @@ function StepRestaurante({
               placeholder={ALTA_MANUAL_NAME_PLACEHOLDER}
               value={mName}
               onChange={(e) => setMName(e.target.value)}
+              onFocus={(e) => onSearchFocus?.(e.currentTarget)}
               className={assistantInputClass}
               {...inputStepConfig.restaurantNameManual}
             />
@@ -1086,6 +1099,7 @@ function StepRestaurante({
           placeholder={ALTA_SEARCH_PLACEHOLDER}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onFocus={(e) => onSearchFocus?.(e.currentTarget)}
           className={cn(
             "h-12 rounded-2xl border-input bg-background pl-10 shadow-sm focus-visible:ring-2 focus-visible:ring-primary/20",
             assistantInputClass,

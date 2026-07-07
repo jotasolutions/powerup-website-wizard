@@ -66,7 +66,6 @@ export function CheckoutLayout({
   const [trialOpen, setTrialOpen] = useState(false);
   const isContacto = step === "contacto";
   const allowScroll = keyboardInset > 0 || trialOpen || isContacto;
-  const footerLift = keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined;
 
   const title =
     step === "resumen"
@@ -124,19 +123,13 @@ export function CheckoutLayout({
       </div>
 
       {footer ? (
-        <div
-          className="safe-area-bottom w-full shrink-0 overflow-x-clip border-t border-border/60 bg-white/80 backdrop-blur"
-          style={{ transform: footerLift }}
-        >
+        <div className="safe-area-bottom w-full shrink-0 overflow-x-clip border-t border-border/60 bg-white/80 backdrop-blur">
           <div className="container-narrow w-full space-y-1.5 py-3">{footer}</div>
         </div>
       ) : null}
 
       {footerRibbon ? (
-        <div
-          className="safe-area-bottom w-full shrink-0 overflow-x-hidden bg-neutral-950"
-          style={{ transform: footerLift }}
-        >
+        <div className="safe-area-bottom w-full shrink-0 overflow-x-hidden bg-neutral-950">
           {footerRibbon}
         </div>
       ) : null}

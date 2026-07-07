@@ -16,7 +16,6 @@ import { TERMS_AND_PRIVACY_URL } from "@/lib/alta-config";
 import { inputStepConfig } from "@/lib/input-step-config";
 import { scrollInputIntoView } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareField } from "./KeyboardAwareField";
-import { cn } from "@/lib/utils";
 
 const assistantInputClass = "text-base md:text-base";
 
@@ -30,7 +29,6 @@ type Props = {
     meta: { consent_user_agent: string },
   ) => void | Promise<void>;
   onFocusInput?: (el: HTMLElement) => void;
-  keyboardInset?: number;
 };
 
 export function ContactoCheckoutFooter({
@@ -39,7 +37,6 @@ export function ContactoCheckoutFooter({
   submitCta,
   onSubmit,
   onFocusInput,
-  keyboardInset = 0,
 }: Props) {
   const [name, setName] = useState(alta.contact_name);
   const [wa, setWa] = useState(alta.whatsapp);
@@ -51,14 +48,7 @@ export function ContactoCheckoutFooter({
   const valid = validName && validWa && consent;
 
   return (
-    <div
-      className={cn(
-        "safe-area-bottom w-full shrink-0 overflow-x-clip border-t border-border/60 bg-white/80 backdrop-blur",
-      )}
-      style={{
-        transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined,
-      }}
-    >
+    <div className="safe-area-bottom w-full shrink-0 overflow-x-clip border-t border-border/60 bg-white/80 backdrop-blur">
       <div className="container-narrow w-full">
         <div className="rounded-t-2xl border border-b-0 border-border/60 bg-white/95 px-3 pb-3 pt-3 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] backdrop-blur sm:px-4 sm:pb-4 sm:pt-4">
           <form

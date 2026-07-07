@@ -88,10 +88,12 @@ export function useVisualViewport(): VisualViewportState {
       return;
     }
 
+    // Alineado con viewport meta `interactive-widget=resizes-content`: el teclado
+    // reduce el viewport visible en lugar de taparlo (Chrome Android 13+, iOS 17+).
     if ("virtualKeyboard" in navigator) {
       try {
         (navigator as Navigator & { virtualKeyboard: { overlaysContent: boolean } }).virtualKeyboard.overlaysContent =
-          true;
+          false;
       } catch {
         // Progressive enhancement — no-op en navegadores sin soporte.
       }
@@ -170,28 +172,53 @@ export function useElementHeight(ref: RefObject<HTMLElement | null>): number {
   return height;
 }
 
+function isInputVisibleInViewport(element: HTMLElement, padding = 12): boolean {
+  const vv = window.visualViewport;
+  if (!vv) return true;
+
+  const rect = element.getBoundingClientRect();
+  const visibleTop = vv.offsetTop + padding;
+  const visibleBottom = vv.height + vv.offsetTop - padding;
+  return rect.top >= visibleTop && rect.bottom <= visibleBottom;
+}
+
+function scrollInputIntoViewOnce(element: HTMLElement) {
+  const vv = window.visualViewport;
+  if (!vv) {
+    element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
+
+  if (isInputVisibleInViewport(element)) return;
+
+  const inFooter = element.closest("footer") != null;
+  if (inFooter) {
+    element.scrollIntoView({ block: "end", behavior: "smooth" });
+    return;
+  }
+
+  const scrollParent = findScrollParent(element);
+  if (!scrollParent) {
+    element.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    return;
+  }
+
+  const rect = element.getBoundingClientRect();
+  const visibleBottom = vv.height + vv.offsetTop;
+  const padding = 12;
+
+  if (rect.bottom > visibleBottom - padding) {
+    scrollParent.scrollTop += rect.bottom - (visibleBottom - padding);
+  } else if (rect.top < vv.offsetTop + padding) {
+    scrollParent.scrollTop += rect.top - (vv.offsetTop + padding);
+  }
+}
+
+/** Mantiene un input dentro del visualViewport (reintenta tras la animación del teclado en Android). */
 export function scrollInputIntoView(element: HTMLElement | null) {
   if (!element || typeof window === "undefined") return;
 
-  // Inputs del footer fijo/flotante: el translateY del footer ya los alinea; no forzar scroll.
-  if (element.closest("footer")) return;
-
-  window.setTimeout(() => {
-    const scrollParent = findScrollParent(element);
-    const vv = window.visualViewport;
-    if (!scrollParent || !vv) {
-      element.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      return;
-    }
-
-    const rect = element.getBoundingClientRect();
-    const visibleBottom = vv.height + vv.offsetTop;
-    const padding = 12;
-
-    if (rect.bottom > visibleBottom - padding) {
-      scrollParent.scrollTop += rect.bottom - (visibleBottom - padding);
-    } else if (rect.top < vv.offsetTop + padding) {
-      scrollParent.scrollTop += rect.top - (vv.offsetTop + padding);
-    }
-  }, 150);
+  for (const delay of [0, 100, 300]) {
+    window.setTimeout(() => scrollInputIntoViewOnce(element), delay);
+  }
 }
