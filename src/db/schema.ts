@@ -37,6 +37,8 @@ export const altas = pgTable("altas", {
   consentUserAgent: text("consent_user_agent"),
   consentIp: text("consent_ip"),
   status: altaStatusEnum("status").notNull().default("pending_payment"),
+  /** Momento de pago confirmado. Filas pre-migración: backfill con created_at (aproximado). */
+  paidAt: timestamp("paid_at", { withTimezone: true }),
   stripeSessionId: text("stripe_session_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripeCustomerId: text("stripe_customer_id"),

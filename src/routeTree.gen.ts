@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ConfirmacionRouteImport } from './routes/confirmacion'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PanelSlugRouteImport } from './routes/panel.$slug'
 import { Route as DevEnrichmentPreviewRouteImport } from './routes/dev.enrichment-preview'
 import { Route as DevDomainPreviewRouteImport } from './routes/dev.domain-preview'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
@@ -23,6 +24,11 @@ const ConfirmacionRoute = ConfirmacionRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PanelSlugRoute = PanelSlugRouteImport.update({
+  id: '/panel/$slug',
+  path: '/panel/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DevEnrichmentPreviewRoute = DevEnrichmentPreviewRouteImport.update({
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/panel/$slug': typeof PanelSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/panel/$slug': typeof PanelSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRoutesById {
@@ -61,6 +69,7 @@ export interface FileRoutesById {
   '/confirmacion': typeof ConfirmacionRoute
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
+  '/panel/$slug': typeof PanelSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
 export interface FileRouteTypes {
@@ -70,6 +79,7 @@ export interface FileRouteTypes {
     | '/confirmacion'
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
+    | '/panel/$slug'
     | '/api/stripe/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -77,6 +87,7 @@ export interface FileRouteTypes {
     | '/confirmacion'
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
+    | '/panel/$slug'
     | '/api/stripe/webhook'
   id:
     | '__root__'
@@ -84,6 +95,7 @@ export interface FileRouteTypes {
     | '/confirmacion'
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
+    | '/panel/$slug'
     | '/api/stripe/webhook'
   fileRoutesById: FileRoutesById
 }
@@ -92,6 +104,7 @@ export interface RootRouteChildren {
   ConfirmacionRoute: typeof ConfirmacionRoute
   DevDomainPreviewRoute: typeof DevDomainPreviewRoute
   DevEnrichmentPreviewRoute: typeof DevEnrichmentPreviewRoute
+  PanelSlugRoute: typeof PanelSlugRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
 }
 
@@ -109,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/panel/$slug': {
+      id: '/panel/$slug'
+      path: '/panel/$slug'
+      fullPath: '/panel/$slug'
+      preLoaderRoute: typeof PanelSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dev/enrichment-preview': {
@@ -140,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConfirmacionRoute: ConfirmacionRoute,
   DevDomainPreviewRoute: DevDomainPreviewRoute,
   DevEnrichmentPreviewRoute: DevEnrichmentPreviewRoute,
+  PanelSlugRoute: PanelSlugRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
 }
 export const routeTree = rootRouteImport

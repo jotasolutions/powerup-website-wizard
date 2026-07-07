@@ -92,10 +92,12 @@ export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
 export async function fulfillAltaFromCheckout(
   params: FulfillAltaFromCheckoutParams,
 ): Promise<FulfillAltaOutcome> {
+  const paidAt = new Date();
   const updated = await getDb()
     .update(altas)
     .set({
       status: "paid",
+      paidAt,
       stripeSessionId: params.stripeSessionId,
       stripeSubscriptionId: params.stripeSubscriptionId,
       stripeCustomerId: params.stripeCustomerId,
@@ -141,7 +143,7 @@ export async function fulfillAltaFromCheckout(
 export async function markAltaPaidMock(altaId: string): Promise<FulfillAltaOutcome> {
   const updated = await getDb()
     .update(altas)
-    .set({ status: "paid", stripeSessionId: `mock_${altaId}` })
+    .set({ status: "paid", paidAt: new Date(), stripeSessionId: `mock_${altaId}` })
     .where(and(eq(altas.id, altaId), ne(altas.status, "paid")))
     .returning({ id: altas.id });
 

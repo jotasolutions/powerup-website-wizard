@@ -168,6 +168,35 @@ export function hasSlackConfig(): boolean {
   return Boolean(getSlackWebhookUrl());
 }
 
+export function getPostHogPersonalApiKey(): string | undefined {
+  return firstEnv("POSTHOG_PERSONAL_API_KEY");
+}
+
+export function getPostHogApiHost(): string {
+  return firstEnv("POSTHOG_API_HOST") ?? "https://eu.posthog.com";
+}
+
+export function getPostHogProjectId(): string {
+  return firstEnv("POSTHOG_PROJECT_ID") ?? "212884";
+}
+
+export function hasPostHogQueryConfig(): boolean {
+  return Boolean(getPostHogPersonalApiKey());
+}
+
+export function getInternalAnalyticsPanelSlug(): string {
+  return firstEnv("INTERNAL_ANALYTICS_PANEL_SLUG") ?? "m4x8nq2k";
+}
+
+export function getInternalAnalyticsReplayUrl(): string | undefined {
+  return firstEnv("INTERNAL_ANALYTICS_REPLAY_URL");
+}
+
+/** Fecha desde la que checkout_scenario/onetime_fee_amount en alta_fulfilled son fiables (deploy 2346dc3). */
+export function getCheckoutScenarioInstrumentedSince(): string {
+  return firstEnv("ANALYTICS_CHECKOUT_SCENARIO_SINCE") ?? "2026-07-07";
+}
+
 /** Usa mock solo si MOCK_DOMAIN_CHECK=true o si faltan credenciales de Namecheap. */
 export function shouldMockDomainCheck(): boolean {
   const raw = firstEnv("MOCK_DOMAIN_CHECK");

@@ -26,6 +26,9 @@ Si `saveAlta` falla con `Failed query: insert into "altas"`, el esquema de Neon 
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
 | `SLACK_WEBHOOK_URL` | Incoming Webhook de Slack para avisos de lead (`saveAlta`) y alta pagada (webhook Stripe) |
 | `VITE_VERCEL_ENV` | `app_env` en eventos PostHog **cliente** (`posthog.register` en `__root.tsx`). Valor: `production` en Production. **Solo scope Production** (ver pre-lanzamiento abajo). |
+| `POSTHOG_PERSONAL_API_KEY` | Panel interno `/panel/{slug}` — HogQL lectura proyecto EU 212884 (solo servidor) |
+| `INTERNAL_ANALYTICS_PANEL_SLUG` | Slug del panel (`m4x8nq2k` por defecto) |
+| `INTERNAL_ANALYTICS_REPLAY_URL` | Enlace playlist Session Replay (tile abandono checkout) |
 
 En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
 
@@ -48,6 +51,13 @@ Antes de tráfico real, en **Vercel → Project Settings → Environment Variabl
 3. Tras cambiar el scope, **redeploy Production** para que el build incorpore la variable.
 
 Si `VITE_VERCEL_ENV` está también en Preview, los deploys de preview envían eventos cliente al mismo proyecto PostHog que producción con `app_env: "preview"` — mezcla datos de QA con métricas reales de forma difícil de separar en funnels sin filtros estrictos.
+
+### Panel interno Diagnóstico Alta
+
+- Ruta: `/panel/{INTERNAL_ANALYTICS_PANEL_SLUG}` (default `m4x8nq2k`). Sin auth en fase de prueba.
+- Métricas Neon (fila 1 + reconciliación) y PostHog HogQL (funnels/trends) vía server functions.
+- Spec: `posthog-dashboard-diagnostico-alta.md`.
+- Tras `npm run db:push`, aplicar backfill `paid_at` (`drizzle/0005_paid_at.sql`).
 
 **Preview sin esta var:** el cliente cae al fallback `development` (`__root.tsx`). Los eventos **servidor** en preview siguen llevando `app_env` desde `process.env.VERCEL_ENV` (`preview`) — filtrar dashboards de producción con `app_env = production` en cliente y/o excluir `preview`/`development` según el insight.
 

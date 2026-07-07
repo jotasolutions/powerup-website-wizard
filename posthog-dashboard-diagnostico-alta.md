@@ -1,4 +1,6 @@
-# Spec ejecutable — Dashboard «Diagnóstico Alta» (PostHog)
+# Spec ejecutable — Dashboard «Diagnóstico Alta»
+
+> **Implementación:** panel interno en la app (`/panel/m4x8nq2k` por defecto). Esta spec sigue siendo la fuente de verdad para eventos, filtros y ventanas. El montaje manual en PostHog UI queda sustituido por el panel custom (salvo playlist de Session Replay).
 
 **Proyecto canónico:** [EU 212884](https://eu.posthog.com/project/212884/) — no usar US `491194` (ver `AGENTS.md`).
 
@@ -145,3 +147,12 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 ## Reconciliación (fuera del dashboard, semanal)
 
 Contar `status = paid` en Neon vs `alta_fulfilled` en PostHog (mismo rango, `app_env = production`). Si divergen, el North Star de PostHog subcuenta (addendum §5).
+
+---
+
+## Pre-lanzamiento
+
+1. **Proteger la ruta del panel** (`/panel/{slug}`) con autenticación real antes de tráfico de producción — hoy sin auth (fase de prueba).
+2. **`VITE_VERCEL_ENV` solo en Production** en Vercel + redeploy Production (ver `AGENTS.md` y addendum §9).
+3. **`paid_at` en Neon:** migración `0005_paid_at.sql`; filas `paid` anteriores usan `created_at` como aproximación (documentado en `analytics-neon.server.ts`).
+4. **Env vars del panel:** `POSTHOG_PERSONAL_API_KEY`, opcional `INTERNAL_ANALYTICS_REPLAY_URL`, `INTERNAL_ANALYTICS_PANEL_SLUG`.
