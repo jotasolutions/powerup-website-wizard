@@ -4,12 +4,15 @@ import { Loader2, ExternalLink } from "lucide-react";
 import {
   getAnalyticsDashboard,
   type AnalyticsDashboardPayload,
+  type CvrLeadPaidData,
   type TileResult,
 } from "@/lib/analytics-dashboard.functions";
 import type { DashboardAppEnvFilter } from "@/lib/analytics-posthog.server";
 import { cn } from "@/lib/utils";
 
 type RangeDays = 7 | 30 | 90;
+
+const LOW_SAMPLE_THRESHOLD = 20;
 
 function pctChange(current: number, previous: number): string | null {
   if (previous === 0) return current > 0 ? "+∞" : null;
@@ -51,18 +54,45 @@ function TileError({ message }: { message: string }) {
   );
 }
 
+function ZeroInRange({ children }: { children: ReactNode }) {
+  return <p className="text-sm text-emerald-700">{children}</p>;
+}
+
+function InsufficientData({ message }: { message: string }) {
+  return <p className="text-sm text-muted-foreground">{message}</p>;
+}
+
+function LowSampleWarning({ n }: { n: number }) {
+  if (n >= LOW_SAMPLE_THRESHOLD) return null;
+  return (
+    <p className="mt-2 text-xs text-amber-700">
+      Muestra insuficiente para interpretar % (n={n} &lt; {LOW_SAMPLE_THRESHOLD}).
+    </p>
+  );
+}
+
+function sumSeriesCounts(series: Array<{ points: Array<{ count: number }> }>): number {
+  return series.reduce(
+    (acc, s) => acc + s.points.reduce((a, p) => a + p.count, 0),
+    0,
+  );
+}
+
 function MetricCard({
   title,
   current,
   previous,
   footer,
+  rangeDays,
 }: {
   title: string;
   current: number;
   previous: number;
   footer?: string;
+  rangeDays?: number;
 }) {
   const delta = pctChange(current, previous);
+  const isZeroWeek = current === 0 && previous === 0;
   return (
     <TileShell title={title} subtitle="Semana actual vs anterior">
       <div className="text-3xl font-semibold tabular-nums">{current}</div>
@@ -70,6 +100,11 @@ function MetricCard({
         Semana anterior: {previous}
         {delta ? <span className="ml-2 font-medium text-foreground">({delta})</span> : null}
       </div>
+      {isZeroWeek && rangeDays != null ? (
+        <p className="mt-2 text-sm text-emerald-700">
+          0 en la semana actual — sin altas en este tramo ✓
+        </p>
+      ) : null}
       {footer ? <p className="mt-2 text-xs text-muted-foreground">{footer}</p> : null}
     </TileShell>
   );
@@ -77,12 +112,30 @@ function MetricCard({
 
 function FunnelBars({
   steps,
+  rangeDays,
 }: {
   steps: Array<{ event: string; count: number }>;
+  rangeDays: number;
 }) {
+  if (steps.length === 0) {
+    return (
+      <InsufficientData message="Sin datos suficientes en PostHog para este funnel en el rango seleccionado." />
+    );
+  }
+
+  const topCount = steps[0]?.count ?? 0;
+  if (topCount === 0) {
+    return (
+      <ZeroInRange>
+        0 en el primer paso del funnel en {rangeDays} días — sin entradas en el rango ✓
+      </ZeroInRange>
+    );
+  }
+
   const max = Math.max(...steps.map((s) => s.count), 1);
   return (
     <div className="space-y-3">
+      <LowSampleWarning n={topCount} />
       {steps.map((step, index) => {
         const prev = index > 0 ? steps[index - 1]!.count : null;
         const drop =
@@ -108,6 +161,47 @@ function FunnelBars({
         );
       })}
     </div>
+  );
+}
+
+function CvrLeadPaidTile({ d, rangeDays }: { d: CvrLeadPaidData; rangeDays: number }) {
+  const phLabel =
+    d.posthogLeads != null
+      ? String(d.posthogLeads)
+      : d.posthogLeadsError
+        ? "—"
+        : "—";
+
+  return (
+    <TileShell title="CVR lead → paid (14d)" subtitle="Conversión Neon · desglose de leads">
+      <div className="text-3xl font-semibold tabular-nums">{(d.rate * 100).toFixed(1)}%</div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {d.converted} / {d.leads} leads convertidos (Neon) en {rangeDays}d · ventana {d.windowDays}d
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border bg-muted/30 p-2 text-center text-sm">
+        <div>
+          <div className="text-xs text-muted-foreground">Leads Neon</div>
+          <div className="text-lg font-semibold tabular-nums">{d.leads}</div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Leads PostHog</div>
+          <div className="text-lg font-semibold tabular-nums">{phLabel}</div>
+        </div>
+      </div>
+      {d.posthogLeads != null && d.posthogLeads !== d.leads ? (
+        <p className="mt-2 text-xs text-amber-700">
+          Δ leads: Neon {d.leads} vs PostHog {d.posthogLeads} — revisar capture o merge de identidad.
+        </p>
+      ) : null}
+      {d.posthogLeadsError ? (
+        <p className="mt-2 text-xs text-muted-foreground">PostHog leads: {d.posthogLeadsError}</p>
+      ) : null}
+      {d.leads === 0 ? (
+        <p className="mt-2 text-sm text-emerald-700">0 leads en el rango (Neon) ✓</p>
+      ) : (
+        <LowSampleWarning n={d.leads} />
+      )}
+    </TileShell>
   );
 }
 
@@ -217,14 +311,7 @@ export function InternalAnalyticsDashboard() {
                 />
               ))}
               {renderTile(data.row1.cvrLeadPaid, (d) => (
-                <TileShell title="CVR lead → paid (14d)" subtitle="Fuente: Neon">
-                  <div className="text-3xl font-semibold tabular-nums">
-                    {(d.rate * 100).toFixed(1)}%
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {d.converted} / {d.leads} leads en {data.meta.rangeDays}d
-                  </p>
-                </TileShell>
+                <CvrLeadPaidTile d={d} rangeDays={data.meta.rangeDays} />
               ))}
             </div>
           </div>
@@ -236,7 +323,7 @@ export function InternalAnalyticsDashboard() {
             <div className="grid gap-4 lg:grid-cols-2">
               <TileShell title="Funnel servidor (autoritativo)" subtitle="Ventana 48h · PostHog">
                 {renderTile(data.row2.funnelServer, (d) => (
-                  <FunnelBars steps={d.steps} />
+                  <FunnelBars steps={d.steps} rangeDays={data.meta.rangeDays} />
                 ))}
               </TileShell>
               <TileShell
@@ -245,7 +332,7 @@ export function InternalAnalyticsDashboard() {
               >
                 {renderTile(data.row2.funnelWizard, (d) => (
                   <>
-                    <FunnelBars steps={d.steps} />
+                    <FunnelBars steps={d.steps} rangeDays={data.meta.rangeDays} />
                     <p className="mt-4 text-xs text-muted-foreground">
                       Solo diagnóstico de pasos — CVR total no oficial: wizard_started es
                       1×/pestaña y el merge de identidad no está validado. El CVR oficial es el
@@ -263,18 +350,33 @@ export function InternalAnalyticsDashboard() {
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">
               <TileShell title="Errores GMB" subtitle="wizard_restaurant_search_error">
-                {renderTile(data.row3.gmbErrors, (d) => (
-                  <ul className="space-y-2 text-sm">
-                    {d.series.slice(0, 8).map((s) => (
-                      <li key={s.label} className="flex justify-between gap-2">
-                        <span className="truncate font-mono text-xs">{s.label}</span>
-                        <span className="tabular-nums">
-                          {s.points.reduce((a, p) => a + p.count, 0)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ))}
+                {renderTile(data.row3.gmbErrors, (d) => {
+                  const total = sumSeriesCounts(d.series);
+                  if (d.series.length === 0) {
+                    return (
+                      <InsufficientData message="Sin datos suficientes en PostHog para errores GMB en el rango seleccionado." />
+                    );
+                  }
+                  if (total === 0) {
+                    return (
+                      <ZeroInRange>
+                        0 errores GMB en {data.meta.rangeDays} días ✓
+                      </ZeroInRange>
+                    );
+                  }
+                  return (
+                    <ul className="space-y-2 text-sm">
+                      {d.series.slice(0, 8).map((s) => (
+                        <li key={s.label} className="flex justify-between gap-2">
+                          <span className="truncate font-mono text-xs">{s.label}</span>
+                          <span className="tabular-nums">
+                            {s.points.reduce((a, p) => a + p.count, 0)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })}
               </TileShell>
               <TileShell
                 title="CVR por escenario de checkout"
@@ -286,38 +388,71 @@ export function InternalAnalyticsDashboard() {
                     (deploy 2346dc3).
                   </p>
                 ) : null}
-                {renderTile(data.row3.scenarioCvr, (d) => (
-                  <ul className="space-y-2 text-sm">
-                    {d.scenarios.map((s) => (
-                      <li key={s.scenario} className="flex justify-between gap-2">
-                        <span>{s.scenario}</span>
-                        <span className="tabular-nums">
-                          {(s.rate * 100).toFixed(0)}% ({s.fulfilled}/{s.started})
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ))}
-              </TileShell>
-              <TileShell title="Atribución UTM" subtitle="wizard_started por utm_source">
-                {renderTile(data.row3.utmAttribution, (d) => (
-                  <>
+                {renderTile(data.row3.scenarioCvr, (d) => {
+                  if (d.scenarios.length === 0) {
+                    return (
+                      <InsufficientData message="Sin datos suficientes de checkout_scenario en el rango seleccionado." />
+                    );
+                  }
+                  const totalStarted = d.scenarios.reduce((a, s) => a + s.started, 0);
+                  if (totalStarted === 0) {
+                    return (
+                      <ZeroInRange>
+                        0 sesiones de checkout en {data.meta.rangeDays} días ✓
+                      </ZeroInRange>
+                    );
+                  }
+                  return (
                     <ul className="space-y-2 text-sm">
-                      {d.series.slice(0, 10).map((s) => (
-                        <li key={s.label} className="flex justify-between gap-2">
-                          <span className="truncate">{s.label}</span>
-                          <span className="tabular-nums">
-                            {s.points.reduce((a, p) => a + p.count, 0)}
-                          </span>
+                      {d.scenarios.map((s) => (
+                        <li key={s.scenario}>
+                          <div className="flex justify-between gap-2">
+                            <span>{s.scenario}</span>
+                            <span className="tabular-nums">
+                              {(s.rate * 100).toFixed(0)}% ({s.fulfilled}/{s.started})
+                            </span>
+                          </div>
+                          <LowSampleWarning n={s.started} />
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      Volumen inflable por multi-pestaña — comparar canales entre sí, no leer
-                      como personas únicas.
-                    </p>
-                  </>
-                ))}
+                  );
+                })}
+              </TileShell>
+              <TileShell title="Atribución UTM" subtitle="wizard_started por utm_source">
+                {renderTile(data.row3.utmAttribution, (d) => {
+                  const total = sumSeriesCounts(d.series);
+                  if (d.series.length === 0) {
+                    return (
+                      <InsufficientData message="Sin datos suficientes de utm_source en el rango seleccionado." />
+                    );
+                  }
+                  if (total === 0) {
+                    return (
+                      <ZeroInRange>
+                        0 wizard_started en {data.meta.rangeDays} días ✓
+                      </ZeroInRange>
+                    );
+                  }
+                  return (
+                    <>
+                      <ul className="space-y-2 text-sm">
+                        {d.series.slice(0, 10).map((s) => (
+                          <li key={s.label} className="flex justify-between gap-2">
+                            <span className="truncate">{s.label}</span>
+                            <span className="tabular-nums">
+                              {s.points.reduce((a, p) => a + p.count, 0)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Volumen inflable por multi-pestaña — comparar canales entre sí, no leer
+                        como personas únicas.
+                      </p>
+                    </>
+                  );
+                })}
               </TileShell>
               <TileShell title="Replays de abandono en checkout">
                 {data.meta.replayUrl ? (
@@ -373,6 +508,11 @@ export function InternalAnalyticsDashboard() {
                           </div>
                         </div>
                       </div>
+                      {d.neon === 0 && d.posthog === 0 ? (
+                        <p className="mt-3 text-sm text-emerald-700">
+                          0 altas pagadas en el rango ✓
+                        </p>
+                      ) : null}
                       {d.delta !== 0 ? (
                         <p className="mt-3 text-xs text-amber-800">
                           PostHog está subcontando respecto al ground truth — investigar capture

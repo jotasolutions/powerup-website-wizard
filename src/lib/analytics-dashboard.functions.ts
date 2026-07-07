@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
   countAltaFulfilledInRange,
+  countAltaLeadSavedInRange,
   queryCheckoutScenarioFunnel,
   queryEventTrendWeekly,
   queryFunnel,
@@ -26,6 +27,11 @@ const DashboardInput = z.object({
   appEnv: z.enum(["production", "all"]).default("production"),
 });
 
+export type CvrLeadPaidData = Awaited<ReturnType<typeof getLeadToPaidCvr14d>> & {
+  posthogLeads: number | null;
+  posthogLeadsError?: string;
+};
+
 export type AnalyticsDashboardPayload = {
   meta: {
     rangeDays: number;
@@ -37,7 +43,7 @@ export type AnalyticsDashboardPayload = {
   row1: {
     weeklyRevenue: TileResult<{ current: number; previous: number }>;
     weeklyTrials: TileResult<{ current: number; previous: number }>;
-    cvrLeadPaid: TileResult<Awaited<ReturnType<typeof getLeadToPaidCvr14d>>>;
+    cvrLeadPaid: TileResult<CvrLeadPaidData>;
   };
   row2: {
     funnelServer: TileResult<{ steps: Array<{ event: string; count: number }> }>;
@@ -87,6 +93,27 @@ async function reconcileDays(
   const neon = neonResult.data;
   const posthog = ph.data.count;
   return { ok: true, data: { neon, posthog, delta: neon - posthog } };
+}
+
+async function buildCvrLeadPaidTile(
+  rangeDays: number,
+  appEnv: DashboardAppEnvFilter,
+): Promise<TileResult<CvrLeadPaidData>> {
+  const [neonResult, phLeads] = await Promise.all([
+    wrapNeon(() => getLeadToPaidCvr14d(rangeDays)),
+    countAltaLeadSavedInRange({ days: rangeDays, appEnv }),
+  ]);
+
+  if (!neonResult.ok) return neonResult;
+
+  return {
+    ok: true,
+    data: {
+      ...neonResult.data,
+      posthogLeads: phLeads.ok ? phLeads.data.count : null,
+      posthogLeadsError: phLeads.ok ? undefined : phLeads.error,
+    },
+  };
 }
 
 export const getAnalyticsDashboard = createServerFn({ method: "GET" })
@@ -143,7 +170,7 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       }),
       reconcileDays(7, appEnv),
       reconcileDays(30, appEnv),
-      wrapNeon(() => getLeadToPaidCvr14d(rangeDays)),
+      buildCvrLeadPaidTile(rangeDays, appEnv),
     ]);
 
     return {

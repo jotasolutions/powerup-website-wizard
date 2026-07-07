@@ -76,7 +76,7 @@ export async function executeHogQLQuery(
     if (json.error) {
       return { ok: false, error: json.error };
     }
-    return { ok: true, data: (json.results ?? json) as HogQLResponse };
+    return { ok: true, data: json as HogQLResponse };
   } catch (error) {
     return {
       ok: false,
@@ -115,7 +115,7 @@ export async function executePostHogQuery<T>(
     if (json.error) {
       return { ok: false, error: json.error };
     }
-    return { ok: true, data: (json.results ?? json) as T };
+    return { ok: true, data: json as T };
   } catch (error) {
     return {
       ok: false,
@@ -238,10 +238,25 @@ export async function countAltaFulfilledInRange(params: {
   days: number;
   appEnv: DashboardAppEnvFilter;
 }): Promise<PostHogQueryResult<{ count: number }>> {
+  return countPostHogEventsInRange({ event: "alta_fulfilled", ...params });
+}
+
+export async function countAltaLeadSavedInRange(params: {
+  days: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ count: number }>> {
+  return countPostHogEventsInRange({ event: "alta_lead_saved", ...params });
+}
+
+async function countPostHogEventsInRange(params: {
+  event: string;
+  days: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ count: number }>> {
   const hogql = `
     SELECT count() AS cnt
     FROM events
-    WHERE event = 'alta_fulfilled'
+    WHERE event = '${params.event}'
       AND timestamp >= now() - INTERVAL ${params.days} DAY
       ${appEnvHogQLClause(params.appEnv)}
   `;
