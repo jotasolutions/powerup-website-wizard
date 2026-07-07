@@ -1,4 +1,5 @@
 import { PostHog } from "posthog-node";
+import { envConfigHint } from "./env.server";
 
 let posthogClient: PostHog | null = null;
 let warnedMissingConfig = false;
@@ -34,7 +35,7 @@ export function getPostHogClient(): PostHog | null {
       console.warn(
         JSON.stringify({
           event: "posthog_server_config_missing",
-          hint: "Set VITE_PUBLIC_POSTHOG_PROJECT_TOKEN in Vercel env (all environments / runtime)",
+          hint: envConfigHint("VITE_PUBLIC_POSTHOG_PROJECT_TOKEN"),
         }),
       );
       warnedMissingConfig = true;

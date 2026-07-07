@@ -1,4 +1,4 @@
-import { getSlackWebhookUrl } from "./env.server";
+import { getSlackWebhookUrl, envConfigHint } from "./env.server";
 
 export type SlackMessagePayload = {
   text: string;
@@ -16,7 +16,7 @@ export async function sendSlackMessage(payload: SlackMessagePayload): Promise<vo
       console.warn(
         JSON.stringify({
           event: "slack_config_missing",
-          hint: "Set SLACK_WEBHOOK_URL in Vercel env (runtime) for lead/paid notifications",
+          hint: envConfigHint("SLACK_WEBHOOK_URL"),
         }),
       );
       warnedMissingSlack = true;

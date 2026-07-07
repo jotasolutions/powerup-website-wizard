@@ -8,7 +8,7 @@
 
 Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funciona?, (2) ¿dónde se caen los usuarios?, (3) ¿por qué se caen ahí? No incluye métricas de plataforma (MRR, clientes totales) — eso es otro dashboard.
 
-**Filtro global del dashboard:** `app_env = production`. Aplicarlo como filtro a nivel de dashboard, no insight por insight. Nota: hasta que el sistema esté en producción real y el scope de `VITE_VERCEL_ENV` esté corregido (ver pre-lanzamiento en `AGENTS.md` y addendum §9), este filtro incluirá también las pruebas internas — aceptado conscientemente, no es un bug.
+**Filtro global del dashboard:** `app_env = production`. Aplicarlo como filtro a nivel de dashboard, no insight por insight. Nota: hasta producción real y scope de `VITE_VERCEL_ENV` corregido (ver [DEPLOY.md](DEPLOY.md)), este filtro incluirá también pruebas internas — aceptado conscientemente.
 
 **Convención de nombres:** todos los insights nuevos con prefijo `[Alta]` para distinguirlos en la lista global del proyecto.
 
@@ -142,7 +142,7 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 2. **Dashboard settings → filters:** `app_env` equals `production`.
 3. Crear insights con prefijo `[Alta]` según filas 1–3.
 4. **Session Replay:** guardar playlist tile 3.4; pegar URL en descripción del dashboard.
-5. Tras pre-lanzamiento (`VITE_VERCEL_ENV` solo Production + redeploy), revisar que el filtro global excluye preview cliente (`development`).
+5. Tras despliegue: revisar filtro `app_env = production` según [DEPLOY.md](DEPLOY.md) (scope `VITE_VERCEL_ENV` + redeploy).
 
 ## Reconciliación (fuera del dashboard, semanal)
 
@@ -152,7 +152,10 @@ Contar `status = paid` en Neon vs `alta_fulfilled` en PostHog (mismo rango, `app
 
 ## Pre-lanzamiento
 
-1. **Proteger la ruta del panel** (`/panel/{slug}`) con autenticación real antes de tráfico de producción — hoy sin auth (fase de prueba).
-2. **`VITE_VERCEL_ENV` solo en Production** en Vercel + redeploy Production (ver `AGENTS.md` y addendum §9).
-3. **`paid_at` en Neon:** migración `0005_paid_at.sql`; filas `paid` anteriores usan `created_at` como aproximación (documentado en `analytics-neon.server.ts`).
-4. **Env vars del panel:** `POSTHOG_PERSONAL_API_KEY`, opcional `INTERNAL_ANALYTICS_REPLAY_URL`, `INTERNAL_ANALYTICS_PANEL_SLUG`.
+Checklist completo de despliegue (variables, pasos one-time, riesgos solo verificables en prod): **[DEPLOY.md](DEPLOY.md)**.
+
+Resumen para el panel de esta spec:
+
+- Filtro global del dashboard: `app_env = production` (ver nota al inicio del documento).
+- Auth en `/panel/{slug}` antes de tráfico real.
+- `paid_at` en Neon: migración `drizzle/0005_paid_at.sql` (backfill aproximado documentado en `analytics-neon.server.ts`).

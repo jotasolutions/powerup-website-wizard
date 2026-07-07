@@ -1,3 +1,22 @@
+/** Nombres aceptados por getDatabaseUrl() (orden de prioridad). */
+export const DATABASE_URL_ENV_KEYS = [
+  "DATABASE_URL",
+  "POSTGRES_URL",
+  "POSTGRES_URL_NON_POOLING",
+  "POSTGRES_PRISMA_URL",
+  "NEON_DATABASE_URL",
+  "NEON_POSTGRES_URL",
+] as const;
+
+/** Mensaje estándar cuando falta una variable de entorno. */
+export function envConfigHint(varName: string): string {
+  return `Falta ${varName}. Añádela a tu .env local (ver .env.example). Para deploy, ver checklist en AGENTS.md.`;
+}
+
+function databaseUrlConfigHint(): string {
+  return `Falta connection string de Neon. Define una de: ${DATABASE_URL_ENV_KEYS.join(", ")}. Añádela a tu .env local (ver .env.example). Para deploy, ver checklist en AGENTS.md.`;
+}
+
 function firstEnv(...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = process.env[key];
@@ -26,21 +45,12 @@ function normalizeDatabaseUrl(raw: string): string {
   return url;
 }
 
-/** Connection string de Neon/Postgres (Vercel y local usan nombres distintos). */
+/** Connection string de Neon/Postgres (local y deploy pueden usar nombres distintos). */
 export function getDatabaseUrl(): string {
-  const url = firstEnv(
-    "DATABASE_URL",
-    "POSTGRES_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "POSTGRES_PRISMA_URL",
-    "NEON_DATABASE_URL",
-    "NEON_POSTGRES_URL",
-  );
+  const url = firstEnv(...DATABASE_URL_ENV_KEYS);
 
   if (!url) {
-    throw new Error(
-      "Falta DATABASE_URL. Añádela en Vercel → Environment Variables (o en tu .env local).",
-    );
+    throw new Error(databaseUrlConfigHint());
   }
 
   return normalizeDatabaseUrl(url);
@@ -91,9 +101,7 @@ export function hasGooglePlaces(): boolean {
 export function getEvolutionApiUrl(): string {
   const url = firstEnv("EVOLUTION_API_URL");
   if (!url) {
-    throw new Error(
-      "Falta EVOLUTION_API_URL. Añádela en Vercel → Environment Variables (o en tu .env local).",
-    );
+    throw new Error(envConfigHint("EVOLUTION_API_URL"));
   }
   return url.replace(/\/$/, "");
 }
@@ -101,9 +109,7 @@ export function getEvolutionApiUrl(): string {
 export function getEvolutionInstanceName(): string {
   const name = firstEnv("EVOLUTION_INSTANCE_NAME");
   if (!name) {
-    throw new Error(
-      "Falta EVOLUTION_INSTANCE_NAME. Añádela en Vercel → Environment Variables (o en tu .env local).",
-    );
+    throw new Error(envConfigHint("EVOLUTION_INSTANCE_NAME"));
   }
   return name;
 }

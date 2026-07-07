@@ -5,6 +5,7 @@ import {
   getStripeSecretKey,
   getStripeWebhookSecret,
   hasStripeConfig,
+  envConfigHint,
 } from "./env.server";
 
 export type PowerUpCustomerStripeFlag = "unknown" | "yes" | "no";
@@ -36,9 +37,7 @@ export function buildCheckoutSubscriptionData(params: {
 function getStripe(): Stripe {
   const secretKey = getStripeSecretKey();
   if (!secretKey) {
-    throw new Error(
-      "STRIPE_SECRET_KEY no está configurada. Añádela en Vercel → Environment Variables.",
-    );
+    throw new Error(envConfigHint("STRIPE_SECRET_KEY"));
   }
 
   return new Stripe(secretKey);
@@ -48,9 +47,7 @@ function getProAnnualPriceId(): string {
   const priceId = getStripeAnnualPriceId();
 
   if (!priceId) {
-    throw new Error(
-      "STRIPE_PRICE_PRO_ANUAL no está configurado. Añádelo en Vercel → Environment Variables.",
-    );
+    throw new Error(envConfigHint("STRIPE_PRICE_PRO_ANUAL"));
   }
 
   return priceId;

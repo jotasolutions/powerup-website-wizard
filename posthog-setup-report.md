@@ -64,9 +64,11 @@ Identidad: `identify(alta_id)` en `identifyAltaLead` tras `saveAlta` y en `recov
 
 - [x] Run a full production build (`npm run build`) and fix any lint or type errors introduced by the generated code.
 - [x] Run the test suite — call sites that were rewritten or instrumented may need updated mocks or fixtures.
-- [ ] Add `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` and `VITE_PUBLIC_POSTHOG_HOST` to Vercel's Environment Variables (Settings → Environment Variables → Production) so events are captured in production.
-- [ ] Wire source-map upload into CI so production stack traces de-minify in PostHog error tracking.
 - [x] Returning-visitor path calls `identify(alta_id)` via `recoverFromCancel` when hay draft con `alta_id`; no se usa WhatsApp como identificador.
+
+## Deploy owner checklist
+
+Variables de entorno, PostHog en producción, source maps y verificación post-deploy: **[DEPLOY.md](DEPLOY.md)** (no forma parte del criterio de validación local).
 
 ### Agent skill
 

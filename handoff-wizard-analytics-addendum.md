@@ -150,18 +150,20 @@ Orden real:
 
 ---
 
-## 9. Pre-lanzamiento — scope de `VITE_VERCEL_ENV` en Vercel
+## 9. Pre-lanzamiento — scope de `VITE_VERCEL_ENV`
 
-**Obligatorio antes de tráfico real:** en Vercel → Environment Variables, `VITE_VERCEL_ENV` debe estar scoped **solo a Production**, no a "Production and Preview".
+Checklist operativo de despliegue (scope, redeploy, inventario de vars): **[DEPLOY.md](DEPLOY.md)** § Pasos one-time.
+
+Resumen analítico:
 
 | Scope | Comportamiento cliente (`app_env`) | Riesgo |
 |---|---|---|
 | Production + Preview | Preview emite eventos al proyecto PostHog canónico con `app_env: "preview"` | Contamina funnels/CVR de producción si no se filtra siempre |
 | **Solo Production** | Solo builds de producción etiquetan `app_env: "production"` en cliente | Preview cliente → fallback `development`; separable en PostHog |
 
-Pasos:
+Pasos (detalle en DEPLOY.md):
 
-1. Editar `VITE_VERCEL_ENV` y quitar Preview (y Development) del scope.
+1. Editar `VITE_VERCEL_ENV` y quitar Preview (y Development) del scope en el host.
 2. Valor en Production: `production`.
 3. **Redeploy Production** tras el cambio (la var es de build para Vite).
 

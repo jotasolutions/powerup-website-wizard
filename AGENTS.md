@@ -2,64 +2,51 @@
 
 Asistente de alta de páginas web para restaurantes (PowerUp Menu). Stack: **TanStack Start** + **Vite** + **Nitro** (preset `vercel`), **Neon** (Drizzle ORM), **Stripe Checkout**, **Tailwind v4** + shadcn/ui.
 
-## Desarrollo local
+## Validación local (criterio del equipo)
 
 ```bash
 npm install
-cp .env.example .env   # configurar DATABASE_URL, STRIPE_*, APP_URL
+cp .env.example .env   # completar variables (ver .env.example)
 npm run db:push        # aplicar schema en Neon (obligatorio tras cambios en src/db/schema.ts)
 npm run dev            # http://localhost:8080
 ```
 
+Pruebas desde móvil en la misma Wi‑Fi: `npm run dev:mobile` → `http://<IP-LAN>:8080`.
+
 Si `saveAlta` falla con `Failed query: insert into "altas"`, el esquema de Neon está desactualizado: vuelve a ejecutar `npm run db:push` (en CI o sin TTY usa `npm run db:push -- --force`).
 
-## Variables de entorno
+El deploy en Vercel puede quedar sin env vars a propósito; **no** es criterio de validación ni se tratan sus errores como bugs. Checklist completo de despliegue: **[DEPLOY.md](DEPLOY.md)**.
+
+## Variables de entorno (desarrollo local)
+
+Plantilla completa: `.env.example`. Resumen de las más usadas en local:
 
 | Variable | Uso |
 |---|---|
-| `DATABASE_URL` | Neon Postgres (obligatorio) |
+| `DATABASE_URL` | Neon Postgres (o alias `POSTGRES_URL`, etc.; ver `getDatabaseUrl()` en `env.server.ts`) |
 | `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` | PostHog cliente (`posthog-js`) y servidor (`posthog-node` en webhook) |
-| `VITE_PUBLIC_POSTHOG_HOST` | Host EU de ingestión (`https://eu.i.posthog.com`); también lo usa `posthog-node` |
-| `STRIPE_SECRET_KEY` | Checkout Stripe (obligatorio) |
-| `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual (obligatorio) |
-| `STRIPE_WEBHOOK_SECRET` | Secreto del endpoint webhook (`whsec_…`); fulfillment autoritativo en `POST /api/stripe/webhook` |
-| `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
-| `SLACK_WEBHOOK_URL` | Incoming Webhook de Slack para avisos de lead (`saveAlta`) y alta pagada (webhook Stripe) |
-| `VITE_VERCEL_ENV` | `app_env` en eventos PostHog **cliente** (`posthog.register` en `__root.tsx`). Valor: `production` en Production. **Solo scope Production** (ver pre-lanzamiento abajo). |
-| `POSTHOG_PERSONAL_API_KEY` | Panel interno `/panel/{slug}` — HogQL lectura proyecto EU 212884 (solo servidor) |
-| `INTERNAL_ANALYTICS_PANEL_SLUG` | Slug del panel (`m4x8nq2k` por defecto) |
-| `INTERNAL_ANALYTICS_REPLAY_URL` | Enlace playlist Session Replay (tile abandono checkout) |
+| `VITE_PUBLIC_POSTHOG_HOST` | Host EU de ingestión (`https://eu.i.posthog.com`) |
+| `STRIPE_SECRET_KEY` | Checkout Stripe |
+| `STRIPE_PRICE_PRO_ANUAL` | Price ID del plan anual |
+| `STRIPE_WEBHOOK_SECRET` | Secreto del endpoint webhook (`whsec_…`); local: `stripe listen --forward-to localhost:8080/api/stripe/webhook` |
+| `APP_URL` | Opcional en local; el cliente envía `window.location.origin` |
+| `GOOGLE_PLACES_API_KEY` | Búsqueda de restaurantes |
+| `POSTHOG_PERSONAL_API_KEY` | Panel interno `/panel/{slug}` — HogQL (solo si usas el panel en local) |
 
-En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
-
-El cliente PostHog usa `api_host: /ingest`. En producción, `vercel.json` reescribe `/ingest/*` hacia PostHog EU; en local, Nitro `routeRules` hace el mismo proxy (el proxy de Vite no aplica con TanStack Start). **`VITE_PUBLIC_POSTHOG_PROJECT_TOKEN` debe existir en el build de Vercel** o el SDK no enviará eventos (no verás peticiones a `/ingest` en Network).
+El cliente PostHog usa `api_host: /ingest`. En local, Nitro `routeRules` hace proxy hacia PostHog EU. En deploy, `vercel.json` reescribe `/ingest/*` (ver [DEPLOY.md](DEPLOY.md)).
 
 ## PostHog (proyecto canónico)
 
 - **Proyecto EU:** [212884](https://eu.posthog.com/project/212884/) — única fuente de verdad para eventos del wizard.
 - **Dashboard:** [792288](https://eu.posthog.com/project/212884/dashboard/792288) (creado por el wizard).
-- **No usar** el proyecto US `491194` (`us.posthog.com`) — quedó del warehouse wizard por error; la app no envía datos allí.
-- **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local y en Vercel Production (**build** + runtime para webhook).
-- **Authorized URLs** (PostHog → Project Settings): `http://localhost:8080` y el dominio Vercel de producción.
-
-### Pre-lanzamiento: `VITE_VERCEL_ENV` solo en Production
-
-Antes de tráfico real, en **Vercel → Project Settings → Environment Variables**:
-
-1. `VITE_VERCEL_ENV` debe tener scope **solo Production** (no Preview ni Development).
-2. Valor en Production: `production` (se inyecta en build del cliente vía `import.meta.env.VITE_VERCEL_ENV`).
-3. Tras cambiar el scope, **redeploy Production** para que el build incorpore la variable.
-
-Si `VITE_VERCEL_ENV` está también en Preview, los deploys de preview envían eventos cliente al mismo proyecto PostHog que producción con `app_env: "preview"` — mezcla datos de QA con métricas reales de forma difícil de separar en funnels sin filtros estrictos.
+- **No usar** el proyecto US `491194` (`us.posthog.com`) — quedó del warehouse wizard por error.
+- **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local.
 
 ### Panel interno Diagnóstico Alta
 
-- Ruta: `/panel/{INTERNAL_ANALYTICS_PANEL_SLUG}` (default `m4x8nq2k`). Sin auth en fase de prueba.
-- Métricas Neon (fila 1 + reconciliación) y PostHog HogQL (funnels/trends) vía server functions.
-- Spec: `posthog-dashboard-diagnostico-alta.md`.
-- Tras `npm run db:push`, aplicar backfill `paid_at` (`drizzle/0005_paid_at.sql`).
-
-**Preview sin esta var:** el cliente cae al fallback `development` (`__root.tsx`). Los eventos **servidor** en preview siguen llevando `app_env` desde `process.env.VERCEL_ENV` (`preview`) — filtrar dashboards de producción con `app_env = production` en cliente y/o excluir `preview`/`development` según el insight.
+- Ruta local: `http://localhost:8080/panel/m4x8nq2k` (slug por defecto).
+- Spec métricas: `posthog-dashboard-diagnostico-alta.md`.
+- Variables y auth en producción: [DEPLOY.md](DEPLOY.md).
 
 ## Flujo principal
 
@@ -69,12 +56,12 @@ Si `VITE_VERCEL_ENV` está también en Preview, los deploys de preview envían e
 
 ### Notificaciones Slack
 
-Con `SLACK_WEBHOOK_URL` configurada (runtime en Vercel), el servidor envía dos mensajes por alta completa:
+Con `SLACK_WEBHOOK_URL` en `.env` local, el servidor envía dos mensajes por alta completa:
 
 1. **Lead** — al guardar WhatsApp en `saveAlta` (pendiente de pago).
 2. **Alta pagada** — al confirmar el pago (`stripe_webhook`, `finalize_checkout` o `mock_checkout` en local sin Stripe).
 
-Si el usuario abandona antes de pagar, solo llega el mensaje de lead. Los avisos son fire-and-forget: un fallo de Slack no bloquea el webhook ni el checkout.
+Si el usuario abandona antes de pagar, solo llega el mensaje de lead. Los avisos son fire-and-forget.
 
 ### Prefetch de dominio (etapa 6)
 
@@ -93,4 +80,5 @@ Si el usuario abandona antes de pagar, solo llega el mensaje de lead. Los avisos
 
 - Server-only: archivos `*.server.ts` y `src/db/index.server.ts`
 - No commitear `.env` ni secretos
-- Mantener el preset Nitro `vercel` en `vite.config.ts` — el deploy lo gestiona Vercel directamente desde GitHub
+- Mantener el preset Nitro `vercel` en `vite.config.ts` — el deploy lo gestiona el host desde GitHub
+- **Despliegue a producción:** [DEPLOY.md](DEPLOY.md) (único checklist; responsabilidad del deploy owner)
