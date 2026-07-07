@@ -68,6 +68,7 @@ import { usePlaceEnrichment } from "@/hooks/usePlaceEnrichment";
 import { useDomainPrefetch } from "@/hooks/useDomainPrefetch";
 import { KeyboardAwareField } from "./KeyboardAwareField";
 import { cn } from "@/lib/utils";
+import { isStepEntry } from "@/lib/step-entry-analytics";
 import { toast } from "sonner";
 
 type StepId =
@@ -141,6 +142,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const restaurantSearchInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
+  const previousStepRef = useRef<StepId | null>(null);
   const personPropertiesSetForAltaIdRef = useRef<string | null>(null);
   const enrichmentErrorToastedRef = useRef(false);
   const lastCapturedSearchErrorRef = useRef<string | null>(null);
@@ -460,6 +462,22 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       setRestaurantManual(false);
     }
   }, [step, resetRestaurantSearch]);
+
+  useEffect(() => {
+    if (
+      isStepEntry({
+        previousStep: previousStepRef.current,
+        currentStep: step,
+        targetStep: "brecha",
+      })
+    ) {
+      posthog.capture("wizard_brecha_viewed", {
+        restaurant_name: alta.restaurant_name,
+        powerup_customer: alta.powerup_customer,
+      });
+    }
+    previousStepRef.current = step;
+  }, [step, posthog, alta.restaurant_name, alta.powerup_customer]);
 
   useEffect(() => {
     if (!restaurantSearchError) return;
