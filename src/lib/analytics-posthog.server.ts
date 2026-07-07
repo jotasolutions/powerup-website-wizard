@@ -4,6 +4,7 @@ import {
   getPostHogProjectId,
   hasPostHogQueryConfig,
 } from "./env.server";
+import { NARRATIVE_FUNNEL_STEPS } from "./analytics-narrative";
 
 export type PostHogQueryResult<T = unknown> =
   | { ok: true; data: T }
@@ -311,4 +312,196 @@ export async function queryCheckoutScenarioFunnel(params: {
     }) ?? [];
 
   return { ok: true, data: { scenarios } };
+}
+
+export async function queryNarrativeFunnel(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ steps: Array<{ event: string; count: number }> }>> {
+  const events = NARRATIVE_FUNNEL_STEPS.map((s) => s.event);
+  return queryFunnel({
+    steps: [...events],
+    windowValue: 48,
+    windowUnit: "hour",
+    rangeDays: params.rangeDays,
+    appEnv: params.appEnv,
+  });
+}
+
+export async function queryPlaceOriginBreakdown(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ google: number; manual: number }>> {
+  const hogql = `
+    SELECT
+      if(
+        notEmpty(toString(properties.place_origin)),
+        toString(properties.place_origin),
+        if(properties.gmb_place_id IS NOT NULL, 'google', 'manual')
+      ) AS origin,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_place_confirmed'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY origin
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const originIdx = columns.findIndex((c) => c === "origin");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  let google = 0;
+  let manual = 0;
+  for (const row of result.data.results ?? []) {
+    const origin = String(row[originIdx] ?? "");
+    const cnt = Number(row[countIdx] ?? 0);
+    if (origin === "google") google = cnt;
+    else if (origin === "manual") manual = cnt;
+  }
+
+  return { ok: true, data: { google, manual } };
+}
+
+export async function queryFulfilledDomainBreakdown(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ domainPaid: number; subdomainFree: number }>> {
+  const hogql = `
+    SELECT
+      if(
+        toFloat(properties.onetime_fee_amount) > 0
+        OR properties.checkout_scenario = 'custom_domain',
+        'domain_paid',
+        'subdomain_free'
+      ) AS kind,
+      count() AS cnt
+    FROM events
+    WHERE event = 'alta_fulfilled'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY kind
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const kindIdx = columns.findIndex((c) => c === "kind");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  let domainPaid = 0;
+  let subdomainFree = 0;
+  for (const row of result.data.results ?? []) {
+    const kind = String(row[kindIdx] ?? "");
+    const cnt = Number(row[countIdx] ?? 0);
+    if (kind === "domain_paid") domainPaid = cnt;
+    else if (kind === "subdomain_free") subdomainFree = cnt;
+  }
+
+  return { ok: true, data: { domainPaid, subdomainFree } };
+}
+
+export async function countGmbErrorsInDays(params: {
+  days: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ total: number; topError: string | null }>> {
+  const hogql = `
+    SELECT
+      coalesce(toString(properties.error), '(sin tipo)') AS error_type,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_restaurant_search_error'
+      AND timestamp >= now() - INTERVAL ${params.days} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY error_type
+    ORDER BY cnt DESC
+    LIMIT 5
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const errorIdx = columns.findIndex((c) => c.includes("error"));
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  let total = 0;
+  let topError: string | null = null;
+  for (const [i, row] of (result.data.results ?? []).entries()) {
+    const cnt = Number(row[countIdx] ?? 0);
+    total += cnt;
+    if (i === 0) topError = String(row[errorIdx] ?? null);
+  }
+
+  return { ok: true, data: { total, topError } };
+}
+
+export async function queryUtmChannelActivation(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<
+  PostHogQueryResult<{
+    channels: Array<{ utm: string; starts: number; activations: number }>;
+  }>
+> {
+  const hogql = `
+    WITH session_starts AS (
+      SELECT
+        person_id,
+        argMin(coalesce(nullIf(toString(properties.utm_source), ''), '(directo)'), timestamp) AS utm
+      FROM events
+      WHERE event = 'wizard_started'
+        AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    ),
+    activations AS (
+      SELECT person_id
+      FROM events
+      WHERE event = 'alta_fulfilled'
+        AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    ),
+    starts_by_utm AS (
+      SELECT utm, count() AS starts
+      FROM session_starts
+      GROUP BY utm
+    ),
+    activations_by_utm AS (
+      SELECT s.utm, count() AS activations
+      FROM session_starts s
+      INNER JOIN activations a ON s.person_id = a.person_id
+      GROUP BY s.utm
+    )
+    SELECT
+      sb.utm,
+      sb.starts,
+      coalesce(ab.activations, 0) AS activations
+    FROM starts_by_utm sb
+    LEFT JOIN activations_by_utm ab ON sb.utm = ab.utm
+    ORDER BY sb.starts DESC
+    LIMIT 10
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const utmIdx = columns.findIndex((c) => c === "utm");
+  const startsIdx = columns.findIndex((c) => c === "starts");
+  const activationsIdx = columns.findIndex((c) => c === "activations");
+
+  const channels =
+    result.data.results?.map((row) => ({
+      utm: String(row[utmIdx] ?? "(directo)"),
+      starts: Number(row[startsIdx] ?? 0),
+      activations: Number(row[activationsIdx] ?? 0),
+    })) ?? [];
+
+  return { ok: true, data: { channels } };
 }

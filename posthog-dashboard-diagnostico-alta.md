@@ -1,6 +1,8 @@
 # Spec ejecutable — Dashboard «Diagnóstico Alta»
 
-> **Implementación:** panel interno en la app (`/panel/m4x8nq2k` por defecto). Esta spec sigue siendo la fuente de verdad para eventos, filtros y ventanas. El montaje manual en PostHog UI queda sustituido por el panel custom (salvo playlist de Session Replay).
+> **Implementación:** panel interno en la app (`/panel/m4x8nq2k` por defecto). Esta spec sigue siendo la fuente de verdad para **eventos, filtros y ventanas**. El montaje manual en PostHog UI queda sustituido por el panel custom (salvo playlist de Session Replay).
+>
+> **Diseño UI v2 (orientado a decisión)** implementado en `InternalAnalyticsDashboard.tsx` — ver sección al final. Las filas 1–3 y la reconciliación visible de esta spec original están **superadas** por v2 (no borradas: siguen como referencia de queries y modo técnico).
 
 **Proyecto canónico:** [EU 212884](https://eu.posthog.com/project/212884/) — no usar US `491194` (ver `AGENTS.md`).
 
@@ -26,7 +28,9 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 
 ---
 
-## Fila 1 — ¿Está funcionando? (3 metric tiles)
+## Fila 1 — ¿Está funcionando? (3 metric tiles) — **SUPERADA por v2**
+
+> v2: cobros de dominio (Neon count + suma €), altas con subdominio, de contacto a alta (CVR 14d Neon), tile día 30 (espera de cohorte).
 
 ### Tile 1.1 — `[Alta] Revenue confirmado / semana`
 
@@ -53,7 +57,9 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 
 ---
 
-## Fila 2 — ¿Dónde se caen? (2 funnels)
+## Fila 2 — ¿Dónde se caen? (2 funnels) — **SUPERADA por v2**
+
+> v2: funnel narrado único de 8 pasos con etiquetas humanas; funnels crudos 2.1/2.2 solo en modo técnico.
 
 ### Tile 2.1 — `[Alta] Funnel servidor (autoritativo)`
 
@@ -87,7 +93,9 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 
 ---
 
-## Fila 3 — ¿Por qué se caen ahí? (4 tiles de causas)
+## Fila 3 — ¿Por qué se caen ahí? (4 tiles de causas) — **SUPERADA por v2**
+
+> v2: tiles en prosa (búsqueda, dominio pago vs gratis, canales, replays). Datos crudos en modo técnico.
 
 ### Tile 3.1 — `[Alta] Errores GMB`
 
@@ -144,9 +152,74 @@ Objetivo del dashboard: responder en este orden (1) ¿el proceso de alta funcion
 4. **Session Replay:** guardar playlist tile 3.4; pegar URL en descripción del dashboard.
 5. Tras despliegue: revisar filtro `app_env = production` según [DEPLOY.md](DEPLOY.md) (scope `VITE_VERCEL_ENV` + redeploy).
 
-## Reconciliación (fuera del dashboard, semanal)
+## Reconciliación (fuera del dashboard, semanal) — **SUPERADA como sección visible**
+
+> v2: nota al pie del funnel narrado. Cards 7d/30d solo en modo técnico.
 
 Contar `status = paid` en Neon vs `alta_fulfilled` en PostHog (mismo rango, `app_env = production`). Si divergen, el North Star de PostHog subcuenta (addendum §5).
+
+---
+
+## Diseño implementado (v2 — orientado a decisión)
+
+Panel para founder no técnico: cada tile responde su pregunta en una frase; números como apoyo. Sin nombres de evento en vista principal.
+
+### A. Resumen en una frase
+
+Card superior con reglas: altas semanales Neon (dominio de pago vs subdominio gratis) + mayor fuga del funnel narrado. Si `n < 20` o sin altas: «Sin actividad suficiente esta semana para un resumen.»
+
+### B. Semáforo por sección
+
+- **¿Funciona?** verde si reconciliación 7d cuadra y ≥1 alta en rango.
+- **¿Dónde?** ámbar si drop-off >25% con `n ≥ 20`; gris si `n < 20`.
+- **¿Por qué?** verde sin errores GMB en semana; ámbar si hay errores.
+
+### C. Fila 1 (4 tiles)
+
+| Tile | Fuente |
+|------|--------|
+| Cobros de dominio | Neon: count + `SUM(onetime_fee_amount)` semanal |
+| Altas con subdominio | Neon: fee 0/null |
+| De contacto a alta | Neon CVR 14d + cruce leads PostHog |
+| Suscripciones al día 30 | **Pendiente cohorte maduro** — ver abajo |
+
+### D. Funnel narrado (8 pasos, /100)
+
+Ventana 48h. Mapeo humano → evento (tooltip / modo técnico):
+
+| Etiqueta | Evento |
+|----------|--------|
+| Entró al asistente | `wizard_started` |
+| Buscó su restaurante | `wizard_search_performed` |
+| Confirmó su restaurante | `wizard_place_confirmed` (+ `place_origin`) |
+| Eligió dominio | `wizard_domain_type_chosen` |
+| Vio la oferta de upgrade | `wizard_brecha_viewed` |
+| Dejó su contacto | `alta_lead_saved` |
+| Llegó al pago | `checkout_session_created` |
+| Activó su página | `alta_fulfilled` |
+
+Sub-líneas: `place_origin` bajo confirmación; dominio pago vs gratis bajo activación. Nota reconciliación al pie.
+
+### E. ¿Por qué? (conclusiones)
+
+Búsqueda, dominio pago vs gratis (`management_fee` excluido), canales UTM, replays enlazados al paso de mayor fuga.
+
+### F. Modo técnico
+
+Toggle sin persistencia: funnels crudos 2.1/2.2, reconciliación 7d/30d, nombres de evento.
+
+### Eventos nuevos (instrumentación)
+
+| Evento | Cuándo | Propiedades |
+|--------|--------|-------------|
+| `wizard_search_performed` | Al lanzar búsqueda GMB (fetch real, no al teclear) | `search_attempt`, `is_first_search`, `query_length` |
+| `wizard_place_confirmed` | Confirmar restaurante | + `place_origin`: `google` \| `manual` |
+
+### Tile día 30 — pendiente
+
+Hasta que exista cohorte con ≥30 días desde `paid_at`, el tile muestra espera con fecha `min(paid_at) + 30d`.
+
+**Para activar métrica real de retención** hace falta estado de suscripción Stripe en Neon o PostHog (webhooks `customer.subscription.updated` / `deleted`). Hoy solo `checkout.session.completed`.
 
 ---
 

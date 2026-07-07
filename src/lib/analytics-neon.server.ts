@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNotNull, lte, or, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, lte, min, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 
@@ -38,6 +38,85 @@ async function countPaidInRange(filter: typeof revenuePaidFilter, from: Date, to
     .from(altas)
     .where(and(filter, gte(altas.paidAt, from), lte(altas.paidAt, to)));
   return Number(row?.value ?? 0);
+}
+
+async function sumRevenueEurInRange(from: Date, to: Date) {
+  const [row] = await getDb()
+    .select({
+      value: sql<string>`COALESCE(SUM(${altas.onetimeFeeAmount}::numeric), 0)`,
+    })
+    .from(altas)
+    .where(and(revenuePaidFilter, gte(altas.paidAt, from), lte(altas.paidAt, to)));
+  return Number(row?.value ?? 0);
+}
+
+export async function getWeeklyRevenueSumEur() {
+  const now = new Date();
+  const thisWeekStart = startOfUtcWeek(now);
+  const lastWeekStart = addDays(thisWeekStart, -7);
+  const lastWeekEnd = addDays(thisWeekStart, -1);
+
+  const [current, previous] = await Promise.all([
+    sumRevenueEurInRange(thisWeekStart, now),
+    sumRevenueEurInRange(lastWeekStart, lastWeekEnd),
+  ]);
+
+  return { current, previous };
+}
+
+export type Day30SubscriptionTile =
+  | {
+      mode: "waiting";
+      hasPaidAltas: false;
+      oldestPaidAt: null;
+      matureDate: null;
+    }
+  | {
+      mode: "waiting";
+      hasPaidAltas: true;
+      oldestPaidAt: string;
+      matureDate: string;
+    }
+  | {
+      mode: "data_unavailable";
+      hasPaidAltas: true;
+      oldestPaidAt: string;
+      matureDate: string;
+      todo: string;
+    };
+
+export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile> {
+  const [row] = await getDb()
+    .select({ oldest: min(altas.paidAt) })
+    .from(altas)
+    .where(and(eq(altas.status, "paid"), isNotNull(altas.paidAt)));
+
+  const oldestPaidAt = row?.oldest ?? null;
+  if (!oldestPaidAt) {
+    return { mode: "waiting", hasPaidAltas: false, oldestPaidAt: null, matureDate: null };
+  }
+
+  const matureDate = addDays(oldestPaidAt, 30);
+  const isoOldest = oldestPaidAt.toISOString();
+  const isoMature = matureDate.toISOString();
+
+  if (new Date() < matureDate) {
+    return {
+      mode: "waiting",
+      hasPaidAltas: true,
+      oldestPaidAt: isoOldest,
+      matureDate: isoMature,
+    };
+  }
+
+  return {
+    mode: "data_unavailable",
+    hasPaidAltas: true,
+    oldestPaidAt: isoOldest,
+    matureDate: isoMature,
+    todo:
+      "Falta estado de suscripción Stripe en Neon (webhooks customer.subscription.updated/deleted).",
+  };
 }
 
 export async function getWeeklyPaidMetrics() {
