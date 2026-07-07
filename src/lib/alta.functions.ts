@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import { dispatchAltaLeadNotification, dispatchAltaPaidNotification } from "./alta-slack.server";
-import { getPostHogClient } from "./posthog-server";
+import { captureServerEvent } from "./posthog-server";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
@@ -268,20 +268,17 @@ export const saveAlta = createServerFn({ method: "POST" })
 
     dispatchAltaLeadNotification(altaId);
 
-    const posthog = getPostHogClient();
-    if (posthog) {
-      posthog.capture({
-        distinctId: altaId,
-        event: "alta_lead_saved",
-        properties: {
-          alta_id: altaId,
-          restaurant_name: data.restaurant_name,
-          has_gmb: data.gmb_place_id != null,
-          domain_is_custom: data.domain_is_custom,
-          powerup_customer: powerupCustomer,
-        },
-      });
-    }
+    captureServerEvent({
+      distinctId: altaId,
+      event: "alta_lead_saved",
+      properties: {
+        alta_id: altaId,
+        restaurant_name: data.restaurant_name,
+        has_gmb: data.gmb_place_id != null,
+        domain_is_custom: data.domain_is_custom,
+        powerup_customer: powerupCustomer,
+      },
+    });
 
     return { alta_id: altaId, saved: true as const };
   });
@@ -334,19 +331,16 @@ export const createCheckout = createServerFn({ method: "POST" })
       throw new Error("Stripe no devolvió una URL de checkout.");
     }
 
-    const posthog = getPostHogClient();
-    if (posthog) {
-      posthog.capture({
-        distinctId: data.alta_id,
-        event: "checkout_session_created",
-        properties: {
-          alta_id: data.alta_id,
-          restaurant_name: alta.restaurantName,
-          powerup_customer: powerupCustomer,
-          stripe_session_id: session.id,
-        },
-      });
-    }
+    captureServerEvent({
+      distinctId: data.alta_id,
+      event: "checkout_session_created",
+      properties: {
+        alta_id: data.alta_id,
+        restaurant_name: alta.restaurantName,
+        powerup_customer: powerupCustomer,
+        stripe_session_id: session.id,
+      },
+    });
 
     return { alta_id: data.alta_id, checkout_url: session.url, mock: false };
   });

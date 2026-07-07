@@ -116,6 +116,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 const posthogApiKey = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "";
 const posthogUiHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || "https://eu.posthog.com";
+const posthogAppEnv = (() => {
+  const env = import.meta.env.VITE_VERCEL_ENV;
+  if (env === "production" || env === "preview" || env === "development") return env;
+  return "development";
+})();
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
@@ -132,6 +137,11 @@ function RootShell({ children }: { children: ReactNode }) {
             defaults: "2025-05-24",
             capture_exceptions: true,
             debug: import.meta.env.DEV,
+            loaded: (posthog) => {
+              posthog.register({
+                app_env: posthogAppEnv,
+              });
+            },
           }}
         >
           {children}

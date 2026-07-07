@@ -14,6 +14,19 @@ export function getPostHogHost(): string | undefined {
   return process.env.VITE_PUBLIC_POSTHOG_HOST || import.meta.env.VITE_PUBLIC_POSTHOG_HOST;
 }
 
+type AppEnv = "production" | "preview" | "development";
+
+function normalizeAppEnv(value: string | undefined): AppEnv {
+  if (value === "production" || value === "preview" || value === "development") {
+    return value;
+  }
+  return "development";
+}
+
+export function getServerAppEnv(): AppEnv {
+  return normalizeAppEnv(process.env.VERCEL_ENV);
+}
+
 export function getPostHogClient(): PostHog | null {
   const token = getPostHogToken();
   if (!token) {
@@ -37,6 +50,24 @@ export function getPostHogClient(): PostHog | null {
     });
   }
   return posthogClient;
+}
+
+export function captureServerEvent(params: {
+  distinctId: string;
+  event: string;
+  properties?: Record<string, unknown>;
+}): void {
+  const posthog = getPostHogClient();
+  if (!posthog) return;
+
+  posthog.capture({
+    distinctId: params.distinctId,
+    event: params.event,
+    properties: {
+      ...(params.properties ?? {}),
+      app_env: getServerAppEnv(),
+    },
+  });
 }
 
 /** Solo para tests: resetea singleton y flag de warning. */

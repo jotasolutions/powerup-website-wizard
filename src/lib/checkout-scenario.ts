@@ -13,10 +13,22 @@ export function isPowerUpUpgrade(alta: AltaState): boolean {
   return alta.powerup_customer === "yes";
 }
 
-export function getCheckoutScenario(alta: AltaState): CheckoutScenario {
-  if (ENABLE_MANAGEMENT_FEE && alta.has_existing_website) return "management_fee";
-  if (alta.domain_is_custom) return "custom_domain";
+export function resolveCheckoutScenario(params: {
+  hasExistingWebsite: boolean | null;
+  domainIsCustom: boolean;
+  managementFeeEnabled?: boolean;
+}): CheckoutScenario {
+  const managementFeeEnabled = params.managementFeeEnabled ?? ENABLE_MANAGEMENT_FEE;
+  if (managementFeeEnabled && params.hasExistingWebsite) return "management_fee";
+  if (params.domainIsCustom) return "custom_domain";
   return "trial_free";
+}
+
+export function getCheckoutScenario(alta: AltaState): CheckoutScenario {
+  return resolveCheckoutScenario({
+    hasExistingWebsite: alta.has_existing_website,
+    domainIsCustom: alta.domain_is_custom,
+  });
 }
 
 export function amountDueToday(alta: AltaState): number {

@@ -1,12 +1,13 @@
 import type Stripe from "stripe";
 import { dispatchAltaPaidNotification } from "./alta-slack.server";
-import { fulfillAltaFromCheckout } from "./db-server";
+import { fulfillAltaFromCheckout, getAltaById } from "./db-server";
+import { resolveCheckoutScenario } from "./checkout-scenario";
 import {
   extractAltaIdFromCheckoutSession,
   isCheckoutSessionComplete,
   normalizeStripeId,
 } from "./stripe.server";
-import { getPostHogClient } from "./posthog-server";
+import { captureServerEvent } from "./posthog-server";
 
 export type WebhookHandlerResult = {
   status: number;
@@ -63,21 +64,48 @@ async function handleCheckoutSessionCompleted(
 
   if (result.outcome === "fulfilled") {
     dispatchAltaPaidNotification(altaId, "stripe_webhook");
+    const properties: Record<string, unknown> = {
+      alta_id: altaId,
+      stripe_session_id: session.id,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSubscriptionId,
+      source: "stripe_webhook",
+    };
 
-    const posthog = getPostHogClient();
-    if (posthog) {
-      posthog.capture({
-        distinctId: altaId,
-        event: "alta_fulfilled",
-        properties: {
+    // Enriquecimiento best-effort: nunca bloquear fulfillment/webhook por estas props extra.
+    try {
+      const alta = await getAltaById(altaId);
+      if (alta) {
+        const onetimeFeeAmount =
+          alta.onetimeFeeAmount != null ? Number(alta.onetimeFeeAmount) : null;
+        properties.checkout_scenario = resolveCheckoutScenario({
+          hasExistingWebsite: alta.hasExistingWebsite,
+          domainIsCustom: alta.domainIsCustom,
+        });
+        properties.onetime_fee_amount = onetimeFeeAmount;
+      } else {
+        console.warn(
+          JSON.stringify({
+            event: "alta_fulfilled_enrichment_missing_alta",
+            alta_id: altaId,
+          }),
+        );
+      }
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "alta_fulfilled_enrichment_failed",
           alta_id: altaId,
-          stripe_session_id: session.id,
-          stripe_customer_id: stripeCustomerId,
-          stripe_subscription_id: stripeSubscriptionId,
-          source: "stripe_webhook",
-        },
-      });
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
+
+    captureServerEvent({
+      distinctId: altaId,
+      event: "alta_fulfilled",
+      properties,
+    });
   }
 
   switch (result.outcome) {

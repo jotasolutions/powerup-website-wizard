@@ -4,6 +4,7 @@ import {
   getCheckoutScenario,
   isPowerUpUpgrade,
   planHeroBadgeLabel,
+  resolveCheckoutScenario,
   stripeReassuranceLine,
   todayPaymentSubtitle,
 } from "./checkout-scenario";
@@ -15,6 +16,30 @@ function alta(overrides: Partial<AltaState> = {}): AltaState {
 }
 
 describe("powerup upgrade checkout copy", () => {
+  it("resolveCheckoutScenario cubre trial_free/custom_domain/management_fee", () => {
+    expect(
+      resolveCheckoutScenario({
+        hasExistingWebsite: false,
+        domainIsCustom: false,
+      }),
+    ).toBe("trial_free");
+
+    expect(
+      resolveCheckoutScenario({
+        hasExistingWebsite: false,
+        domainIsCustom: true,
+      }),
+    ).toBe("custom_domain");
+
+    expect(
+      resolveCheckoutScenario({
+        hasExistingWebsite: true,
+        domainIsCustom: false,
+        managementFeeEnabled: true,
+      }),
+    ).toBe("management_fee");
+  });
+
   it("isPowerUpUpgrade solo con yes", () => {
     expect(isPowerUpUpgrade(alta({ powerup_customer: "yes" }))).toBe(true);
     expect(isPowerUpUpgrade(alta({ powerup_customer: "no" }))).toBe(false);
