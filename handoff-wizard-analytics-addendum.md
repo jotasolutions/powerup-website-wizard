@@ -150,4 +150,23 @@ Orden real:
 
 ---
 
+## 9. Pre-lanzamiento — scope de `VITE_VERCEL_ENV` en Vercel
+
+**Obligatorio antes de tráfico real:** en Vercel → Environment Variables, `VITE_VERCEL_ENV` debe estar scoped **solo a Production**, no a "Production and Preview".
+
+| Scope | Comportamiento cliente (`app_env`) | Riesgo |
+|---|---|---|
+| Production + Preview | Preview emite eventos al proyecto PostHog canónico con `app_env: "preview"` | Contamina funnels/CVR de producción si no se filtra siempre |
+| **Solo Production** | Solo builds de producción etiquetan `app_env: "production"` en cliente | Preview cliente → fallback `development`; separable en PostHog |
+
+Pasos:
+
+1. Editar `VITE_VERCEL_ENV` y quitar Preview (y Development) del scope.
+2. Valor en Production: `production`.
+3. **Redeploy Production** tras el cambio (la var es de build para Vite).
+
+Los eventos servidor en preview siguen usando `VERCEL_ENV` nativo (`app_env: "preview"` vía `captureServerEvent`). Los dashboards de producción deben filtrar `app_env = production` o excluir `preview`/`development` explícitamente.
+
+---
+
 Este addendum no reemplaza `handoff-wizard-analytics.md`; lo acota. Cualquier definición de objetivos o diseño de dashboard debe pasar antes por los P0 de este documento.

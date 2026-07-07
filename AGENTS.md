@@ -25,6 +25,7 @@ Si `saveAlta` falla con `Failed query: insert into "altas"`, el esquema de Neon 
 | `STRIPE_WEBHOOK_SECRET` | Secreto del endpoint webhook (`whsec_…`); fulfillment autoritativo en `POST /api/stripe/webhook` |
 | `APP_URL` | URL pública para success/cancel de Stripe (opcional en local; el cliente envía `window.location.origin`) |
 | `SLACK_WEBHOOK_URL` | Incoming Webhook de Slack para avisos de lead (`saveAlta`) y alta pagada (webhook Stripe) |
+| `VITE_VERCEL_ENV` | `app_env` en eventos PostHog **cliente** (`posthog.register` en `__root.tsx`). Valor: `production` en Production. **Solo scope Production** (ver pre-lanzamiento abajo). |
 
 En **Vercel → Environment Variables**, las vars `VITE_PUBLIC_POSTHOG_*` deben estar disponibles en **runtime** de las funciones serverless (no solo en build), para que `alta_fulfilled` se capture desde el webhook. Si faltan, el webhook sigue respondiendo 200 pero verás `posthog_server_config_missing` en los logs.
 
@@ -37,6 +38,18 @@ El cliente PostHog usa `api_host: /ingest`. En producción, `vercel.json` reescr
 - **No usar** el proyecto US `491194` (`us.posthog.com`) — quedó del warehouse wizard por error; la app no envía datos allí.
 - **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local y en Vercel Production (**build** + runtime para webhook).
 - **Authorized URLs** (PostHog → Project Settings): `http://localhost:8080` y el dominio Vercel de producción.
+
+### Pre-lanzamiento: `VITE_VERCEL_ENV` solo en Production
+
+Antes de tráfico real, en **Vercel → Project Settings → Environment Variables**:
+
+1. `VITE_VERCEL_ENV` debe tener scope **solo Production** (no Preview ni Development).
+2. Valor en Production: `production` (se inyecta en build del cliente vía `import.meta.env.VITE_VERCEL_ENV`).
+3. Tras cambiar el scope, **redeploy Production** para que el build incorpore la variable.
+
+Si `VITE_VERCEL_ENV` está también en Preview, los deploys de preview envían eventos cliente al mismo proyecto PostHog que producción con `app_env: "preview"` — mezcla datos de QA con métricas reales de forma difícil de separar en funnels sin filtros estrictos.
+
+**Preview sin esta var:** el cliente cae al fallback `development` (`__root.tsx`). Los eventos **servidor** en preview siguen llevando `app_env` desde `process.env.VERCEL_ENV` (`preview`) — filtrar dashboards de producción con `app_env = production` en cliente y/o excluir `preview`/`development` según el insight.
 
 ## Flujo principal
 
