@@ -22,7 +22,7 @@ export function NarrativeFunnel({
 
   if (topCount === 0 && steps.every((s) => s.count === 0)) {
     return (
-      <TileShell title="Recorrido del asistente" subtitle="De cada 100 personas que entran">
+      <TileShell title="Recorrido del asistente" subtitle="De cada 100 personas · ventana única 48 h">
         <p className="text-sm text-emerald-700">0 entradas en el rango — sin actividad ✓</p>
       </TileShell>
     );
@@ -30,7 +30,7 @@ export function NarrativeFunnel({
 
   if (topCount < LOW_SAMPLE_THRESHOLD) {
     return (
-      <TileShell title="Recorrido del asistente" subtitle="De cada 100 personas que entran">
+      <TileShell title="Recorrido del asistente" subtitle="De cada 100 personas · ventana única 48 h">
         <p className="text-sm text-muted-foreground">
           Sin actividad suficiente en PostHog para dibujar el recorrido.
         </p>
@@ -125,6 +125,10 @@ export function NarrativeFunnel({
           </p>
         )}
         <p>Los pasos de navegación son orientativos.</p>
+        <p>
+          Ventana única de 48 h por simplicidad. Para análisis fino de ventanas (24 h wizard / 48 h
+          servidor), usa modo técnico.
+        </p>
       </footer>
     </TileShell>
   );

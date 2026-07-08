@@ -89,9 +89,11 @@ En el host → Environment Variables:
 
 Sin esto, el cliente PostHog cae a `app_env: development` y contamina funnels si no se filtra. Detalle analítico: `handoff-wizard-analytics-addendum.md` §9.
 
-### 6. Stripe webhook
+### 6. Stripe webhook (checkout)
 
-Registrar en Stripe Dashboard el endpoint `https://<dominio>/api/stripe/webhook` con el mismo `STRIPE_WEBHOOK_SECRET` del host.
+Registrar en Stripe Dashboard el endpoint `https://<dominio>/api/stripe/webhook` con el mismo `STRIPE_WEBHOOK_SECRET` del host. Hoy el handler procesa `checkout.session.completed` (fulfillment de alta).
+
+**Webhooks de suscripción (largo plazo, opcional para el panel):** `customer.subscription.updated` / `deleted` no son necesarios para el tile «Suscripciones al día 30» — ese tile consulta `stripe.subscriptions.retrieve()` bajo demanda con los `stripe_subscription_id` ya guardados en Neon (caché ~4 h). Sí conviene instrumentarlos más adelante si queréis reaccionar a cancelaciones en tiempo real (alertas, win-back), no solo contarlas en revisión semanal.
 
 ### 7. Verificación post-deploy (deploy owner)
 

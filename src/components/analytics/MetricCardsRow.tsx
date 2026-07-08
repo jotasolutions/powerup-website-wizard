@@ -3,7 +3,7 @@ import type {
   DomainPaymentsData,
   TileResult,
 } from "@/lib/analytics-dashboard.functions";
-import type { Day30SubscriptionTile } from "@/lib/analytics-neon.server";
+import type { Day30SubscriptionTile } from "@/lib/analytics-day30.server";
 import {
   formatEsEur,
   formatEsNumber,
@@ -86,7 +86,7 @@ export function MetricCardsRow({
       ))}
 
       {renderTile(day30, (d) => (
-        <TileShell title="Suscripciones al día 30" subtitle="Retención post-trial">
+        <TileShell title="Suscripciones al día 30" subtitle="Retención post-trial · Stripe API">
           {d.mode === "waiting" && !d.hasPaidAltas ? (
             <p className="text-sm text-muted-foreground">
               Todavía no hay altas pagadas. Cuando empiecen los trials, aquí verás la retención al día 30.
@@ -101,11 +101,44 @@ export function MetricCardsRow({
               })}
               .
             </p>
-          ) : d.mode === "data_unavailable" ? (
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              El cohorte ya maduró, pero falta el estado de suscripción en la base de datos.{" "}
-              {d.todo}
-            </p>
+          ) : d.mode === "stripe_unavailable" ? (
+            <p className="text-sm leading-relaxed text-muted-foreground">{d.reason}</p>
+          ) : d.mode === "retention" ? (
+            <>
+              <p className="text-sm leading-relaxed">
+                {d.cohortSize === 0
+                  ? "Cohorte maduro sin altas con 30 días desde el pago."
+                  : `${formatEsNumber(d.retained)} de ${formatEsNumber(d.cohortSize)} siguen con suscripción activa al día 30.`}
+              </p>
+              {d.cohortSize >= LOW_SAMPLE_THRESHOLD ? (
+                <p className="mt-2 text-2xl font-semibold tabular-nums">
+                  {Math.round(d.retentionRate * 100)}%
+                </p>
+              ) : (
+                <LowSampleNote n={d.cohortSize} />
+              )}
+              {(d.domainPaid.total > 0 || d.subdomainFree.total > 0) && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Dominio de pago: {formatEsNumber(d.domainPaid.retained)}/
+                  {formatEsNumber(d.domainPaid.total)} · Subdominio gratis:{" "}
+                  {formatEsNumber(d.subdomainFree.retained)}/
+                  {formatEsNumber(d.subdomainFree.total)}
+                </p>
+              )}
+              {d.pastDue > 0 ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  {formatEsNumber(d.pastDue)} en past_due (aún no canceladas).
+                </p>
+              ) : null}
+              {d.missingStripeIds > 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formatEsNumber(d.missingStripeIds)} sin stripe_subscription_id consultable.
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Consulta Stripe bajo demanda (caché 4 h).
+              </p>
+            </>
           ) : null}
         </TileShell>
       ))}

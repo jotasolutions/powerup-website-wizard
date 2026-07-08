@@ -16,7 +16,9 @@ export const initialSearchCaptureState: SearchCaptureState = {
   searchAttemptCount: 0,
 };
 
-/** Dispara al arrancar un fetch real (transición a fetching), no al teclear ni en re-render. */
+/** Dispara al arrancar un fetch real (transición a fetching), no al teclear ni en re-render.
+ *  search_attempt cuenta queries debounced distintas, no intentos deliberados —
+ *  no usar como métrica de frustración sin suavizar. */
 export function shouldCaptureSearchPerformed(params: {
   isFetching: boolean;
   wasFetching: boolean;

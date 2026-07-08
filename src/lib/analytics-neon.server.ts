@@ -1,4 +1,4 @@
-import { and, count, eq, gte, isNotNull, lte, min, or, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 
@@ -62,61 +62,6 @@ export async function getWeeklyRevenueSumEur() {
   ]);
 
   return { current, previous };
-}
-
-export type Day30SubscriptionTile =
-  | {
-      mode: "waiting";
-      hasPaidAltas: false;
-      oldestPaidAt: null;
-      matureDate: null;
-    }
-  | {
-      mode: "waiting";
-      hasPaidAltas: true;
-      oldestPaidAt: string;
-      matureDate: string;
-    }
-  | {
-      mode: "data_unavailable";
-      hasPaidAltas: true;
-      oldestPaidAt: string;
-      matureDate: string;
-      todo: string;
-    };
-
-export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile> {
-  const [row] = await getDb()
-    .select({ oldest: min(altas.paidAt) })
-    .from(altas)
-    .where(and(eq(altas.status, "paid"), isNotNull(altas.paidAt)));
-
-  const oldestPaidAt = row?.oldest ?? null;
-  if (!oldestPaidAt) {
-    return { mode: "waiting", hasPaidAltas: false, oldestPaidAt: null, matureDate: null };
-  }
-
-  const matureDate = addDays(oldestPaidAt, 30);
-  const isoOldest = oldestPaidAt.toISOString();
-  const isoMature = matureDate.toISOString();
-
-  if (new Date() < matureDate) {
-    return {
-      mode: "waiting",
-      hasPaidAltas: true,
-      oldestPaidAt: isoOldest,
-      matureDate: isoMature,
-    };
-  }
-
-  return {
-    mode: "data_unavailable",
-    hasPaidAltas: true,
-    oldestPaidAt: isoOldest,
-    matureDate: isoMature,
-    todo:
-      "Falta estado de suscripción Stripe en Neon (webhooks customer.subscription.updated/deleted).",
-  };
 }
 
 export async function getWeeklyPaidMetrics() {

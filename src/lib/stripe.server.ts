@@ -86,6 +86,13 @@ export async function retrieveCheckoutSession(sessionId: string): Promise<Stripe
   return stripe.checkout.sessions.retrieve(sessionId);
 }
 
+export async function retrieveStripeSubscription(
+  subscriptionId: string,
+): Promise<Stripe.Subscription> {
+  const stripe = getStripe();
+  return stripe.subscriptions.retrieve(subscriptionId);
+}
+
 export function constructStripeWebhookEvent(
   rawBody: string,
   signature: string,

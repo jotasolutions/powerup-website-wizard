@@ -181,11 +181,13 @@ Card superior con reglas: altas semanales Neon (dominio de pago vs subdominio gr
 | Cobros de dominio | Neon: count + `SUM(onetime_fee_amount)` semanal |
 | Altas con subdominio | Neon: fee 0/null |
 | De contacto a alta | Neon CVR 14d + cruce leads PostHog |
-| Suscripciones al día 30 | **Pendiente cohorte maduro** — ver abajo |
+| Suscripciones al día 30 | Neon `stripe_subscription_id` + consulta Stripe API bajo demanda — ver abajo |
 
 ### D. Funnel narrado (8 pasos, /100)
 
-Ventana 48h. Mapeo humano → evento (tooltip / modo técnico):
+**Ventana única 48 h** para los 8 pasos (decisión explícita: legibilidad sobre precisión de ventanas mixtas). La spec original usaba 24 h para pasos wizard y 48 h para servidor; el funnel narrado unifica en 48 h. Para análisis fino de ventanas, **modo técnico** (funnel wizard 24 h, funnel servidor 48 h).
+
+Mapeo humano → evento (tooltip / modo técnico):
 
 | Etiqueta | Evento |
 |----------|--------|
@@ -212,14 +214,20 @@ Toggle sin persistencia: funnels crudos 2.1/2.2, reconciliación 7d/30d, nombres
 
 | Evento | Cuándo | Propiedades |
 |--------|--------|-------------|
-| `wizard_search_performed` | Al lanzar búsqueda GMB (fetch real, no al teclear) | `search_attempt`, `is_first_search`, `query_length` |
+| `wizard_search_performed` | Al lanzar búsqueda GMB (fetch debounced, al arrancar fetch) | `search_attempt`, `is_first_search`, `query_length` |
 | `wizard_place_confirmed` | Confirmar restaurante | + `place_origin`: `google` \| `manual` |
 
-### Tile día 30 — pendiente
+**Nota `search_attempt`:** cuenta queries debounced distintas, no reintentos deliberados. Alguien que teclea despacio puede generar varias capturas (`"ric"` → `"ricard"` → `"ricard camarena"`). Para el funnel da igual (PostHog cuenta personas únicas por paso). **No usar `search_attempt` como métrica de frustración sin suavizar.**
 
-Hasta que exista cohorte con ≥30 días desde `paid_at`, el tile muestra espera con fecha `min(paid_at) + 30d`.
+**Nota `place_origin`:** histórico pre-deploy se infiere en HogQL vía `gmb_place_id` si falta la propiedad.
 
-**Para activar métrica real de retención** hace falta estado de suscripción Stripe en Neon o PostHog (webhooks `customer.subscription.updated` / `deleted`). Hoy solo `checkout.session.completed`.
+### Tile día 30 — retención post-trial
+
+1. **Modo espera** — hasta `min(paid_at) + 30d`: «Todas en trial…».
+2. **Modo retención** — cohorte con ≥30 días desde `paid_at`: `stripe.subscriptions.retrieve()` por cada `stripe_subscription_id` en Neon al cargar el panel (caché ~4 h). Estados: `active`, `trialing`, `past_due` cuentan como retenidos; breakdown dominio de pago vs subdominio gratis.
+3. **Sin `STRIPE_SECRET_KEY`** — tile degradado con mensaje explícito.
+
+La API de Stripe es retroactiva (estado actual sin haber escuchado eventos intermedios). **No requiere webhooks** para el tile semanal. Webhooks `customer.subscription.updated` / `deleted` siguen siendo lo correcto a largo plazo para reaccionar a cancelaciones en tiempo real — ver [DEPLOY.md](DEPLOY.md).
 
 ---
 

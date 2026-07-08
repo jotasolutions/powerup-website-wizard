@@ -21,12 +21,14 @@ import {
   type DashboardAppEnvFilter,
 } from "./analytics-posthog.server";
 import {
-  countNeonPaidInLastDays,
   getDay30SubscriptionTile,
+  type Day30SubscriptionTile,
+} from "./analytics-day30.server";
+import {
+  countNeonPaidInLastDays,
   getLeadToPaidCvr14d,
   getWeeklyPaidMetrics,
   getWeeklyRevenueSumEur,
-  type Day30SubscriptionTile,
 } from "./analytics-neon.server";
 import {
   getCheckoutScenarioInstrumentedSince,
@@ -296,7 +298,7 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
     const weeklyResult = await wrapNeon(getWeeklyPaidMetrics);
     const weekly = weeklyResult.ok ? weeklyResult.data : null;
     const revenueSumResult = await wrapNeon(getWeeklyRevenueSumEur);
-    const day30Result = await wrapNeon(getDay30SubscriptionTile);
+    const day30Result = await wrapNeon(() => getDay30SubscriptionTile());
 
     const [
       narrativeFunnelRaw,
