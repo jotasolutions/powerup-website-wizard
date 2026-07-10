@@ -12,12 +12,15 @@ import {
   countAltaLeadSavedInRange,
   countGmbErrorsInDays,
   queryCheckoutScenarioFunnel,
+  queryDomainTypeActivationFunnel,
+  queryDomainTypeChosenBreakdown,
   queryEventTrendWeekly,
   queryFulfilledDomainBreakdown,
   queryFunnel,
   queryNarrativeFunnel,
   queryPlaceOriginBreakdown,
   queryUtmChannelActivation,
+  queryWizardStartedTiming,
   type DashboardAppEnvFilter,
 } from "./analytics-posthog.server";
 import {
@@ -26,10 +29,17 @@ import {
 } from "./analytics-day30.server";
 import {
   countNeonPaidInLastDays,
+  getDailyRegistrations,
   getLeadToPaidCvr14d,
-  getWeeklyPaidMetrics,
-  getWeeklyRevenueSumEur,
+  getRegistrationsHeroMetrics,
 } from "./analytics-neon.server";
+import { buildDomainPreferenceInsight } from "./analytics-domain-insight";
+import type {
+  DailyRegistrationPoint,
+  DomainPreferenceHeroData,
+  RegistrationsHeroData,
+  WhenTheyStartData,
+} from "./analytics-hero.types";
 import {
   getCheckoutScenarioInstrumentedSince,
   getInternalAnalyticsPanelSlug,
@@ -100,18 +110,20 @@ export type AnalyticsDashboardPayload = {
     checkoutScenarioSince: string;
     panelSlug: string;
   };
-  summary: TileResult<SummaryData>;
+  hero: {
+    registrations: TileResult<RegistrationsHeroData>;
+    domainPreference: TileResult<DomainPreferenceHeroData>;
+    dailyRegistrations: TileResult<DailyRegistrationPoint[]>;
+  };
   sectionLights: SectionLights;
   row1: {
-    domainPayments: TileResult<DomainPaymentsData>;
-    subdomainSignups: TileResult<{ current: number; previous: number }>;
     contactToSignup: TileResult<CvrLeadPaidData>;
     day30: TileResult<Day30SubscriptionTile>;
   };
   narrativeFunnel: TileResult<NarrativeFunnelData>;
   why: {
     search: TileResult<WhySearchData>;
-    domainVsFree: TileResult<WhyDomainData>;
+    whenTheyStart: TileResult<WhenTheyStartData>;
     channels: TileResult<WhyChannelsData>;
   };
   technical: {
@@ -189,45 +201,31 @@ async function buildCvrLeadPaidTile(
   };
 }
 
-function buildWhyDomainData(
-  scenarios: Array<{ scenario: string; started: number; fulfilled: number; rate: number }>,
-): WhyDomainData {
-  const custom = scenarios.find((s) => s.scenario === "custom_domain");
-  const trial = scenarios.find((s) => s.scenario === "trial_free");
-  const customRate = custom && custom.started > 0 ? custom.fulfilled / custom.started : null;
-  const trialRate = trial && trial.started > 0 ? trial.fulfilled / trial.started : null;
-  const sampleN = Math.max(custom?.started ?? 0, trial?.started ?? 0);
-  let ratio: number | null = null;
-  if (customRate != null && trialRate != null && trialRate > 0) {
-    ratio = customRate / trialRate;
-  }
+function buildDomainPreferenceHero(
+  breakdown: { paid: number; free: number },
+  activation: {
+    paid: { chosen: number; activated: number };
+    free: { chosen: number; activated: number };
+  },
+): DomainPreferenceHeroData {
+  const paidRate =
+    activation.paid.chosen > 0 ? activation.paid.activated / activation.paid.chosen : null;
+  const freeRate =
+    activation.free.chosen > 0 ? activation.free.activated / activation.free.chosen : null;
 
   return {
-    scenarios,
-    customDomainRate: customRate,
-    trialFreeRate: trialRate,
-    ratio,
-    sampleN,
-  };
-}
-
-function buildSummary(params: {
-  weeklyDomain: number;
-  weeklyTrials: number;
-  worstDropoff: WorstDropoff | null;
-  topCount: number;
-}): SummaryData {
-  const weeklyTotal = params.weeklyDomain + params.weeklyTrials;
-  if (weeklyTotal < 1 || params.topCount < LOW_SAMPLE_THRESHOLD || !params.worstDropoff) {
-    return {
-      sufficient: false,
-      sentence: "Sin actividad suficiente esta semana para un resumen.",
-    };
-  }
-
-  return {
-    sufficient: true,
-    sentence: `Esta semana: ${weeklyTotal} altas (${params.weeklyDomain} con dominio de pago, ${params.weeklyTrials} con subdominio gratis). El mayor punto de fuga es ${params.worstDropoff.stepLabel.toLowerCase()}, donde abandona el ${params.worstDropoff.dropPercent}% de quienes llegan.`,
+    breakdown,
+    activation: {
+      paid: { ...activation.paid, rate: paidRate },
+      free: { ...activation.free, rate: freeRate },
+    },
+    insight: buildDomainPreferenceInsight({
+      paidChosen: breakdown.paid,
+      freeChosen: breakdown.free,
+      paidActivationRate: paidRate,
+      freeActivationRate: freeRate,
+    }),
+    sampleN: breakdown.paid + breakdown.free,
   };
 }
 
@@ -295,9 +293,6 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<AnalyticsDashboardPayload> => {
     const { rangeDays, appEnv } = data;
 
-    const weeklyResult = await wrapNeon(getWeeklyPaidMetrics);
-    const weekly = weeklyResult.ok ? weeklyResult.data : null;
-    const revenueSumResult = await wrapNeon(getWeeklyRevenueSumEur);
     const day30Result = await wrapNeon(() => getDay30SubscriptionTile());
 
     const [
@@ -315,6 +310,11 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       gmbErrorsWeek,
       utmChannels,
       paidInRange,
+      registrationsHero,
+      domainChosenBreakdown,
+      domainActivation,
+      wizardStartedTiming,
+      dailyRegistrations,
     ] = await Promise.all([
       queryNarrativeFunnel({ rangeDays, appEnv }),
       queryPlaceOriginBreakdown({ rangeDays, appEnv }),
@@ -359,6 +359,13 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       countGmbErrorsInDays({ days: 7, appEnv }),
       queryUtmChannelActivation({ rangeDays, appEnv }),
       wrapNeon(() => countNeonPaidInLastDays(rangeDays)),
+      wrapNeon(() => getRegistrationsHeroMetrics(rangeDays)),
+      queryDomainTypeChosenBreakdown({ rangeDays, appEnv }),
+      queryDomainTypeActivationFunnel({ rangeDays, appEnv }),
+      queryWizardStartedTiming({ rangeDays, appEnv }),
+      rangeDays === 7 || rangeDays === 30
+        ? wrapNeon(() => getDailyRegistrations(rangeDays))
+        : Promise.resolve({ ok: true as const, data: [] as DailyRegistrationPoint[] }),
     ]);
 
     const narrativeSteps =
@@ -398,20 +405,6 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
               "Sin datos de funnel",
           };
 
-    const summary: TileResult<SummaryData> = weekly
-      ? {
-          ok: true,
-          data: buildSummary({
-            weeklyDomain: weekly.revenue.current,
-            weeklyTrials: weekly.trials.current,
-            worstDropoff,
-            topCount,
-          }),
-        }
-      : weeklyResult.ok
-        ? { ok: false, error: "Sin datos semanales" }
-        : weeklyResult;
-
     const sectionLights = buildSectionLights({
       reconciliation7,
       paidInRange: paidInRange.ok ? paidInRange.data : 0,
@@ -421,20 +414,22 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       gmbErrorsOk: gmbErrorsWeek.ok,
     });
 
-    const domainPayments: TileResult<DomainPaymentsData> =
-      weekly && revenueSumResult.ok
+    const domainPreference: TileResult<DomainPreferenceHeroData> =
+      domainChosenBreakdown.ok && domainActivation.ok
         ? {
             ok: true,
-            data: {
-              count: weekly.revenue,
-              sumEur: revenueSumResult.data,
-            },
+            data: buildDomainPreferenceHero(
+              domainChosenBreakdown.data,
+              domainActivation.data,
+            ),
           }
-        : !weeklyResult.ok
-          ? weeklyResult
-          : !revenueSumResult.ok
-            ? revenueSumResult
-            : { ok: false, error: "Sin datos" };
+        : {
+            ok: false,
+            error:
+              (!domainChosenBreakdown.ok && domainChosenBreakdown.error) ||
+              (!domainActivation.ok && domainActivation.error) ||
+              "Sin datos de preferencia de dominio",
+          };
 
     return {
       meta: {
@@ -444,15 +439,13 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
         checkoutScenarioSince: getCheckoutScenarioInstrumentedSince(),
         panelSlug: getInternalAnalyticsPanelSlug(),
       },
-      summary,
+      hero: {
+        registrations: registrationsHero,
+        domainPreference,
+        dailyRegistrations,
+      },
       sectionLights,
       row1: {
-        domainPayments,
-        subdomainSignups: weekly
-          ? { ok: true, data: weekly.trials }
-          : weeklyResult.ok
-            ? { ok: false, error: "Sin datos" }
-            : weeklyResult,
         contactToSignup: cvrLeadPaid,
         day30: day30Result,
       },
@@ -468,9 +461,9 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
               },
             }
           : gmbErrorsWeek,
-        domainVsFree: scenarioCvr.ok
-          ? { ok: true, data: buildWhyDomainData(scenarioCvr.data.scenarios) }
-          : scenarioCvr,
+        whenTheyStart: wizardStartedTiming.ok
+          ? { ok: true, data: wizardStartedTiming.data }
+          : wizardStartedTiming,
         channels: utmChannels.ok
           ? { ok: true, data: { channels: utmChannels.data.channels } }
           : utmChannels,

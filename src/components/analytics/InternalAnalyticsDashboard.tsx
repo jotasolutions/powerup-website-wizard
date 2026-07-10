@@ -7,15 +7,18 @@ import {
 } from "@/lib/analytics-dashboard.functions";
 import type { DashboardAppEnvFilter } from "@/lib/analytics-posthog.server";
 import { cn } from "@/lib/utils";
-import { DecisionSummaryCard } from "./DecisionSummaryCard";
+import { DomainPreferenceHeroCard } from "./DomainPreferenceHeroCard";
 import { MetricCardsRow } from "./MetricCardsRow";
 import { NarrativeFunnel } from "./NarrativeFunnel";
+import { RegistrationsHeroCard } from "./RegistrationsHeroCard";
 import { SectionTrafficLight } from "./SectionTrafficLight";
 import { TechnicalModePanel } from "./TechnicalModePanel";
 import { WhyTiles } from "./WhyTiles";
-import { renderTile } from "./analytics-ui";
+import { renderTile, TileError } from "./analytics-ui";
 
 type RangeDays = 7 | 30 | 90;
+
+const RANGE_OPTIONS: RangeDays[] = [7, 30, 90];
 
 export function InternalAnalyticsDashboard() {
   const fetchDashboard = useServerFn(getAnalyticsDashboard);
@@ -47,8 +50,10 @@ export function InternalAnalyticsDashboard() {
       ? data.narrativeFunnel.data.worstDropoff.stepLabel
       : null;
 
+  const showDailyChart = rangeDays === 7 || rangeDays === 30;
+
   return (
-    <main className="container-narrow safe-area-bottom mx-auto max-w-5xl px-4 py-8">
+    <main className="container-narrow safe-area-bottom mx-auto max-w-5xl px-4 py-8 tabular-nums">
       <header className="mb-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -57,30 +62,36 @@ export function InternalAnalyticsDashboard() {
               Panel interno — decisiones de producto en lenguaje claro
             </p>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={technicalMode}
-              onChange={(e) => setTechnicalMode(e.target.checked)}
-              className="rounded border"
-            />
-            Modo técnico
-          </label>
+          <button
+            type="button"
+            onClick={() => setTechnicalMode((v) => !v)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted",
+              technicalMode && "border-foreground/30 bg-muted text-foreground",
+            )}
+          >
+            Técnico
+          </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            Rango
-            <select
-              className="rounded-lg border bg-background px-2 py-1"
-              value={rangeDays}
-              onChange={(e) => setRangeDays(Number(e.target.value) as RangeDays)}
-            >
-              <option value={7}>7 días</option>
-              <option value={30}>30 días</option>
-              <option value={90}>90 días</option>
-            </select>
-          </label>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="flex rounded-full border p-0.5">
+            {RANGE_OPTIONS.map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setRangeDays(days)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-sm transition-colors",
+                  rangeDays === days
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {days}d
+              </button>
+            ))}
+          </div>
           <label className="flex items-center gap-2 text-sm">
             Entorno
             <select
@@ -111,10 +122,24 @@ export function InternalAnalyticsDashboard() {
 
       {data ? (
         <div className="space-y-8">
-          <DecisionSummaryCard
-            summary={data.summary.ok ? data.summary.data : null}
-            loading={loading}
-          />
+          <section className="grid gap-4 lg:grid-cols-2">
+            {data.hero.registrations.ok ? (
+              <RegistrationsHeroCard
+                data={data.hero.registrations.data}
+                dailyPoints={
+                  data.hero.dailyRegistrations.ok ? data.hero.dailyRegistrations.data : null
+                }
+                showDailyChart={showDailyChart}
+              />
+            ) : (
+              <TileError message={data.hero.registrations.error} />
+            )}
+            {data.hero.domainPreference.ok ? (
+              <DomainPreferenceHeroCard data={data.hero.domainPreference.data} />
+            ) : (
+              <TileError message={data.hero.domainPreference.error} />
+            )}
+          </section>
 
           <section>
             <SectionTrafficLight
@@ -122,12 +147,7 @@ export function InternalAnalyticsDashboard() {
               light={data.sectionLights.funciona.light}
               subtitle={data.sectionLights.funciona.subtitle}
             />
-            <MetricCardsRow
-              domainPayments={data.row1.domainPayments}
-              subdomainSignups={data.row1.subdomainSignups}
-              contactToSignup={data.row1.contactToSignup}
-              day30={data.row1.day30}
-            />
+            <MetricCardsRow contactToSignup={data.row1.contactToSignup} />
           </section>
 
           <section>
@@ -149,6 +169,7 @@ export function InternalAnalyticsDashboard() {
             />
             <WhyTiles
               why={data.why}
+              day30={data.row1.day30}
               replayUrl={data.meta.replayUrl}
               worstStepLabel={worstStepLabel}
             />

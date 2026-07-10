@@ -505,3 +505,220 @@ export async function queryUtmChannelActivation(params: {
 
   return { ok: true, data: { channels } };
 }
+
+export async function queryDomainTypeChosenBreakdown(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<{ paid: number; free: number }>> {
+  const hogql = `
+    SELECT
+      if(
+        toString(properties.domain_type) = 'custom_domain',
+        'paid',
+        'free'
+      ) AS kind,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_domain_type_chosen'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY kind
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const kindIdx = columns.findIndex((c) => c === "kind");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  let paid = 0;
+  let free = 0;
+  for (const row of result.data.results ?? []) {
+    const kind = String(row[kindIdx] ?? "");
+    const cnt = Number(row[countIdx] ?? 0);
+    if (kind === "paid") paid = cnt;
+    else if (kind === "free") free = cnt;
+  }
+
+  return { ok: true, data: { paid, free } };
+}
+
+export async function queryDomainTypeActivationFunnel(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<
+  PostHogQueryResult<{
+    paid: { chosen: number; activated: number };
+    free: { chosen: number; activated: number };
+  }>
+> {
+  const hogql = `
+    WITH choices AS (
+      SELECT
+        person_id,
+        argMin(
+          if(toString(properties.domain_type) = 'custom_domain', 'paid', 'free'),
+          timestamp
+        ) AS kind,
+        min(timestamp) AS chosen_at
+      FROM events
+      WHERE event = 'wizard_domain_type_chosen'
+        AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    ),
+    fulfilled AS (
+      SELECT person_id, min(timestamp) AS fulfilled_at
+      FROM events
+      WHERE event = 'alta_fulfilled'
+        AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    )
+    SELECT
+      c.kind,
+      count() AS chosen,
+      countIf(
+        f.fulfilled_at IS NOT NULL
+        AND f.fulfilled_at >= c.chosen_at
+        AND f.fulfilled_at <= c.chosen_at + INTERVAL 48 HOUR
+      ) AS activated
+    FROM choices c
+    LEFT JOIN fulfilled f ON c.person_id = f.person_id
+    GROUP BY c.kind
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const kindIdx = columns.findIndex((c) => c === "kind");
+  const chosenIdx = columns.findIndex((c) => c === "chosen");
+  const activatedIdx = columns.findIndex((c) => c === "activated");
+
+  const empty = { chosen: 0, activated: 0 };
+  let paid = { ...empty };
+  let free = { ...empty };
+
+  for (const row of result.data.results ?? []) {
+    const kind = String(row[kindIdx] ?? "");
+    const bucket = {
+      chosen: Number(row[chosenIdx] ?? 0),
+      activated: Number(row[activatedIdx] ?? 0),
+    };
+    if (kind === "paid") paid = bucket;
+    else if (kind === "free") free = bucket;
+  }
+
+  return { ok: true, data: { paid, free } };
+}
+
+const MADRID_TZ = "Europe/Madrid";
+
+export async function queryWizardStartedTiming(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<
+  PostHogQueryResult<{
+    total: number;
+    byDayOfWeek: Array<{ day: number; label: string; count: number }>;
+    byTimeSlot: Array<{ slot: string; label: string; count: number }>;
+  }>
+> {
+  const dowHogql = `
+    SELECT
+      toDayOfWeek(toTimeZone(timestamp, '${MADRID_TZ}')) AS dow,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_started'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY dow
+    ORDER BY dow
+  `;
+
+  const slotHogql = `
+    SELECT
+      multiIf(
+        toHour(toTimeZone(timestamp, '${MADRID_TZ}')) >= 6
+          AND toHour(toTimeZone(timestamp, '${MADRID_TZ}')) < 14,
+        'morning',
+        toHour(toTimeZone(timestamp, '${MADRID_TZ}')) >= 14
+          AND toHour(toTimeZone(timestamp, '${MADRID_TZ}')) < 22,
+        'afternoon',
+        'night'
+      ) AS slot,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_started'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY slot
+    ORDER BY slot
+  `;
+
+  const totalHogql = `
+    SELECT count() AS cnt
+    FROM events
+    WHERE event = 'wizard_started'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+  `;
+
+  const [dowResult, slotResult, totalResult] = await Promise.all([
+    executeHogQLQuery(dowHogql),
+    executeHogQLQuery(slotHogql),
+    executeHogQLQuery(totalHogql),
+  ]);
+
+  if (!dowResult.ok) return dowResult;
+  if (!slotResult.ok) return slotResult;
+  if (!totalResult.ok) return totalResult;
+
+  const DOW_LABELS: Record<number, string> = {
+    1: "L",
+    2: "M",
+    3: "X",
+    4: "J",
+    5: "V",
+    6: "S",
+    7: "D",
+  };
+
+  const SLOT_LABELS: Record<string, string> = {
+    morning: "Mañana 6–14",
+    afternoon: "Tarde 14–22",
+    night: "Noche 22–6",
+  };
+
+  const dowColumns = dowResult.data.columns ?? [];
+  const dowIdx = dowColumns.findIndex((c) => c === "dow");
+  const dowCountIdx = dowColumns.findIndex((c) => c === "cnt" || c === "count()");
+
+  const byDayOfWeek = (dowResult.data.results ?? []).map((row) => {
+    const day = Number(row[dowIdx] ?? 0);
+    return {
+      day,
+      label: DOW_LABELS[day] ?? String(day),
+      count: Number(row[dowCountIdx] ?? 0),
+    };
+  });
+
+  const slotColumns = slotResult.data.columns ?? [];
+  const slotIdx = slotColumns.findIndex((c) => c === "slot");
+  const slotCountIdx = slotColumns.findIndex((c) => c === "cnt" || c === "count()");
+
+  const byTimeSlot = (slotResult.data.results ?? []).map((row) => {
+    const slot = String(row[slotIdx] ?? "");
+    return {
+      slot,
+      label: SLOT_LABELS[slot] ?? slot,
+      count: Number(row[slotCountIdx] ?? 0),
+    };
+  });
+
+  const total = Number(totalResult.data.results?.[0]?.[0] ?? 0);
+
+  return { ok: true, data: { total, byDayOfWeek, byTimeSlot } };
+}

@@ -127,3 +127,109 @@ export async function countNeonPaidInLastDays(days: number) {
     .where(and(eq(altas.status, "paid"), isNotNull(altas.paidAt), gte(altas.paidAt, since)));
   return Number(row?.value ?? 0);
 }
+
+const anyPaidFilter = and(eq(altas.status, "paid"), isNotNull(altas.paidAt));
+
+async function countAnyPaidInRange(from: Date, to: Date) {
+  const [row] = await getDb()
+    .select({ value: count() })
+    .from(altas)
+    .where(and(anyPaidFilter, gte(altas.paidAt, from), lte(altas.paidAt, to)));
+  return Number(row?.value ?? 0);
+}
+
+async function countAndSumPaidDomainInRange(from: Date, to: Date) {
+  const [row] = await getDb()
+    .select({
+      count: count(),
+      sumEur: sql<string>`COALESCE(SUM(${altas.onetimeFeeAmount}::numeric), 0)`,
+    })
+    .from(altas)
+    .where(and(revenuePaidFilter, gte(altas.paidAt, from), lte(altas.paidAt, to)));
+  return {
+    count: Number(row?.count ?? 0),
+    sumEur: Number(row?.sumEur ?? 0),
+  };
+}
+
+async function countFreeSubdomainInRange(from: Date, to: Date) {
+  return countPaidInRange(trialPaidFilter, from, to);
+}
+
+export type RegistrationsHeroData = {
+  total: { current: number; previous: number };
+  paidDomain: { count: number; sumEur: number };
+  freeSubdomain: { count: number };
+  weeklyTrend: number[];
+  weeksOfHistory: number;
+};
+
+export async function getRegistrationsHeroMetrics(rangeDays: number): Promise<RegistrationsHeroData> {
+  const now = new Date();
+  const periodStart = addDays(now, -rangeDays);
+  const prevStart = addDays(periodStart, -rangeDays);
+
+  const [totalCurrent, totalPrevious, paidDomain, freeSubdomain, weeklyTrend, weeksOfHistory] =
+    await Promise.all([
+      countAnyPaidInRange(periodStart, now),
+      countAnyPaidInRange(prevStart, periodStart),
+      countAndSumPaidDomainInRange(periodStart, now),
+      countFreeSubdomainInRange(periodStart, now),
+      getLastWeekRegistrationCounts(4),
+      getWeeksOfPaidHistory(),
+    ]);
+
+  return {
+    total: { current: totalCurrent, previous: totalPrevious },
+    paidDomain,
+    freeSubdomain: { count: freeSubdomain },
+    weeklyTrend,
+    weeksOfHistory,
+  };
+}
+
+async function getWeeksOfPaidHistory(): Promise<number> {
+  const [row] = await getDb()
+    .select({ minPaid: sql<string>`min(${altas.paidAt})` })
+    .from(altas)
+    .where(anyPaidFilter);
+  const minPaid = row?.minPaid ? new Date(row.minPaid) : null;
+  if (!minPaid || Number.isNaN(minPaid.getTime())) return 0;
+  const diffMs = Date.now() - minPaid.getTime();
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
+async function getLastWeekRegistrationCounts(weekCount: number): Promise<number[]> {
+  const now = new Date();
+  const thisWeekStart = startOfUtcWeek(now);
+  const counts: number[] = [];
+
+  for (let i = weekCount - 1; i >= 0; i--) {
+    const weekStart = addDays(thisWeekStart, -7 * i);
+  const weekEnd = i === 0 ? now : addDays(weekStart, 6);
+    const to = i === 0 ? now : new Date(weekEnd.getTime() + 24 * 60 * 60 * 1000 - 1);
+    counts.push(await countAnyPaidInRange(weekStart, to));
+  }
+
+  return counts;
+}
+
+export type DailyRegistrationPoint = { day: string; count: number };
+
+export async function getDailyRegistrations(rangeDays: number): Promise<DailyRegistrationPoint[]> {
+  const since = addDays(new Date(), -rangeDays);
+  const rows = await getDb()
+    .select({
+      day: sql<string>`to_char(date_trunc('day', ${altas.paidAt}), 'YYYY-MM-DD')`,
+      count: count(),
+    })
+    .from(altas)
+    .where(and(anyPaidFilter, gte(altas.paidAt, since)))
+    .groupBy(sql`date_trunc('day', ${altas.paidAt})`)
+    .orderBy(sql`date_trunc('day', ${altas.paidAt})`);
+
+  return rows.map((r) => ({
+    day: String(r.day),
+    count: Number(r.count ?? 0),
+  }));
+}

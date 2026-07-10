@@ -1,18 +1,12 @@
 import { ExternalLink } from "lucide-react";
-import type {
-  AnalyticsDashboardPayload,
-  WhyChannelsData,
-  WhyDomainData,
-  WhySearchData,
-} from "@/lib/analytics-dashboard.functions";
-import {
-  formatEsNumber,
-  LOW_SAMPLE_THRESHOLD,
-  SCENARIO_LABELS,
-} from "@/lib/analytics-narrative";
+import type { AnalyticsDashboardPayload, TileResult } from "@/lib/analytics-dashboard.functions";
+import type { Day30SubscriptionTile } from "@/lib/analytics-day30.server";
+import { formatEsNumber } from "@/lib/analytics-narrative";
+import { Day30Strip } from "./MetricCardsRow";
+import { WhenTheyStartTile } from "./WhenTheyStartTile";
 import { LowSampleNote, TileShell, TileError } from "./analytics-ui";
 
-function WhySearchTile({ data }: { data: WhySearchData }) {
+function WhySearchTile({ data }: { data: AnalyticsDashboardPayload["why"]["search"] extends { ok: true; data: infer D } ? D : never }) {
   return (
     <TileShell title="Búsqueda de restaurante">
       {data.totalErrors === 0 ? (
@@ -20,7 +14,7 @@ function WhySearchTile({ data }: { data: WhySearchData }) {
           Sin errores técnicos esta semana — la fuga no es por fallos de Google ✓
         </p>
       ) : (
-        <p className="text-sm leading-relaxed">
+        <p className="text-sm leading-relaxed tabular-nums">
           {formatEsNumber(data.totalErrors)} error{data.totalErrors === 1 ? "" : "es"} esta semana
           {data.topError ? `, principal: ${data.topError}` : ""}.
         </p>
@@ -29,48 +23,11 @@ function WhySearchTile({ data }: { data: WhySearchData }) {
   );
 }
 
-function WhyDomainTile({ data }: { data: WhyDomainData }) {
-  const custom = data.scenarios.find((s) => s.scenario === "custom_domain");
-  const trial = data.scenarios.find((s) => s.scenario === "trial_free");
-
-  if (data.sampleN < LOW_SAMPLE_THRESHOLD) {
-    return (
-      <TileShell title="Dominio de pago vs gratis">
-        <p className="text-sm text-muted-foreground">
-          Aún no hay suficientes llegadas al pago para comparar escenarios.
-        </p>
-        <LowSampleNote n={data.sampleN} />
-      </TileShell>
-    );
-  }
-
-  if (!custom || !trial || data.ratio == null) {
-    return (
-      <TileShell title="Dominio de pago vs gratis">
-        <p className="text-sm text-muted-foreground">Sin datos de ambos escenarios en el rango.</p>
-      </TileShell>
-    );
-  }
-
-  const moreOrLess = data.ratio >= 1 ? "más" : "menos";
-  const ratioDisplay = data.ratio >= 1 ? data.ratio : 1 / data.ratio;
-
-  return (
-    <TileShell title="Dominio de pago vs gratis">
-      <p className="text-sm leading-relaxed">
-        Quien llega al pago con {SCENARIO_LABELS.custom_domain} completa{" "}
-        {ratioDisplay.toFixed(1)}× {moreOrLess} que con {SCENARIO_LABELS.trial_free} (n=
-        {formatEsNumber(data.sampleN)}).
-      </p>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Dominio: {Math.round((data.customDomainRate ?? 0) * 100)}% · Gratis:{" "}
-        {Math.round((data.trialFreeRate ?? 0) * 100)}%
-      </p>
-    </TileShell>
-  );
-}
-
-function WhyChannelsTile({ data }: { data: WhyChannelsData }) {
+function WhyChannelsTile({
+  data,
+}: {
+  data: AnalyticsDashboardPayload["why"]["channels"] extends { ok: true; data: infer D } ? D : never;
+}) {
   if (data.channels.length === 0) {
     return (
       <TileShell title="Canales de entrada">
@@ -85,19 +42,13 @@ function WhyChannelsTile({ data }: { data: WhyChannelsData }) {
   return (
     <TileShell title="Canales de entrada">
       <p className="text-sm leading-relaxed">
-        {topVolume
-          ? `${topVolume.utm} trae más gente`
-          : "Sin canal dominante"}
+        {topVolume ? `${topVolume.utm} trae más gente` : "Sin canal dominante"}
         {topActivation && topActivation.utm !== topVolume?.utm
           ? `, ${topActivation.utm} la que más activa`
           : topActivation
             ? " y también la que más activa"
             : ""}
         .
-      </p>
-      <p className="mt-3 text-xs text-muted-foreground">
-        Volumen inflable por multi-pestaña — comparar canales entre sí, no leer como personas
-        únicas.
       </p>
     </TileShell>
   );
@@ -140,37 +91,46 @@ function WhyReplaysTile({
 
 export function WhyTiles({
   why,
+  day30,
   replayUrl,
   worstStepLabel,
 }: {
   why: AnalyticsDashboardPayload["why"];
+  day30: TileResult<Day30SubscriptionTile>;
   replayUrl: string | null;
   worstStepLabel: string | null;
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {why.search.ok ? (
-        <WhySearchTile data={why.search.data} />
-      ) : (
-        <TileShell title="Búsqueda de restaurante">
-          <TileError message={why.search.error} />
-        </TileShell>
-      )}
-      {why.domainVsFree.ok ? (
-        <WhyDomainTile data={why.domainVsFree.data} />
-      ) : (
-        <TileShell title="Dominio de pago vs gratis">
-          <TileError message={why.domainVsFree.error} />
-        </TileShell>
-      )}
-      {why.channels.ok ? (
-        <WhyChannelsTile data={why.channels.data} />
-      ) : (
-        <TileShell title="Canales de entrada">
-          <TileError message={why.channels.error} />
-        </TileShell>
-      )}
-      <WhyReplaysTile replayUrl={replayUrl} worstStepLabel={worstStepLabel} />
+    <div className="space-y-4">
+      <Day30Strip day30={day30} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {why.search.ok ? (
+          <WhySearchTile data={why.search.data} />
+        ) : (
+          <TileShell title="Búsqueda de restaurante">
+            <TileError message={why.search.error} />
+          </TileShell>
+        )}
+
+        {why.whenTheyStart.ok ? (
+          <WhenTheyStartTile data={why.whenTheyStart.data} />
+        ) : (
+          <TileShell title="¿Cuándo empiezan el alta?" className="lg:col-span-2">
+            <TileError message={why.whenTheyStart.error} />
+          </TileShell>
+        )}
+
+        {why.channels.ok ? (
+          <WhyChannelsTile data={why.channels.data} />
+        ) : (
+          <TileShell title="Canales de entrada">
+            <TileError message={why.channels.error} />
+          </TileShell>
+        )}
+
+        <WhyReplaysTile replayUrl={replayUrl} worstStepLabel={worstStepLabel} />
+      </div>
     </div>
   );
 }

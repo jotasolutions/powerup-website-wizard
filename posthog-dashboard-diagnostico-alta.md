@@ -240,3 +240,47 @@ Resumen para el panel de esta spec:
 - Filtro global del dashboard: `app_env = production` (ver nota al inicio del documento).
 - Auth en `/panel/{slug}` antes de tráfico real.
 - `paid_at` en Neon: migración `drizzle/0005_paid_at.sql` (backfill aproximado documentado en `analytics-neon.server.ts`).
+
+---
+
+## v4 — Hero registros y preferencia de dominio
+
+**Commit:** `feat: panel v4 - registrations hero and domain preference`  
+**Implementación:** `InternalAnalyticsDashboard.tsx` y componentes en `src/components/analytics/`.
+
+### Nueva jerarquía (arriba → abajo)
+
+1. **Hero (grid 2 columnas)** — sustituye resumen editorial v2 y fila 1 de métricas semanales.
+   - **Registros (Neon):** total del período con delta vs período anterior; desglose dominio de pago (count + €) vs subdominio gratis; mini-tendencia últimas 4 semanas (texto `1 · 2 · 2 · 3` o sparkline SVG si ≥8 semanas de historia).
+   - **¿Qué eligen: gratis o pago? (PostHog):** barra de reparto de `wizard_domain_type_chosen`; mini-cards de conversión elegir→`alta_fulfilled` por tipo (48 h); insight por reglas con n&lt;20 en gris.
+
+2. **Chart diario** — bajo card Registros, solo en rangos 7/30 días (`paid_at` truncado a día).
+
+3. **¿Funciona?** — CVR contacto→alta (Neon 14 d).
+
+4. **¿Dónde?** — funnel narrado **compacto** (columnas verticales, peor paso ámbar).
+
+5. **¿Por qué?** — día 30 en franja horizontal; búsqueda; **¿Cuándo empiezan el alta?** (`wizard_started`, Europe/Madrid); canales UTM; replays. **Eliminado:** tile dominio pago vs gratis (vive en hero).
+
+### Fuentes y mapeo `domain_type`
+
+| Propiedad en evento | UI |
+|---------------------|-----|
+| `custom_domain` | Dominio de pago (verde) |
+| `free_subdomain` | Subdominio gratis (neutro) |
+
+HogQL: `if(properties.domain_type = 'custom_domain', 'paid', 'free')`.
+
+### Reglas de insight (hero derecha)
+
+- n &lt; 20 → «Muestra insuficiente para conclusiones» (gris).
+- eligen-pago ≥55% y Δ conversión &lt;10 pp → verde precio no es barrera.
+- eligen-pago ≥55% y conversión pago &lt;60% de gratis → ámbar revisar precio/momento.
+- eligen-gratis ≥55% → mayoría prefiere empezar gratis.
+
+### Transversales v4
+
+- Selector de rango en píldoras 7/30/90; botón «Técnico» discreto.
+- `tabular-nums` en cifras del panel.
+- Máximo 1 verde + 2 ámbar simultáneos en pantalla.
+- Modo técnico sin cambios (funnels crudos, reconciliación).
