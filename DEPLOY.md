@@ -77,6 +77,8 @@ En [Project Settings → Authorized URLs](https://eu.posthog.com/project/212884/
 
 ### 4. Panel interno — autenticación
 
+**Prioridad ALTA:** La pestaña Operaciones expone PII (nombres, teléfonos, notas). La auth del panel deja de ser opcional y pasa a ser **bloqueante** antes de cualquier tráfico real.
+
 Antes de tráfico real, proteger `/panel/{INTERNAL_ANALYTICS_PANEL_SLUG}` (default `m4x8nq2k`) con autenticación real. Hoy la ruta es de prueba sin auth.
 
 ### 5. `VITE_VERCEL_ENV` y redeploy
