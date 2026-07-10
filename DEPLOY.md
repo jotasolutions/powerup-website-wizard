@@ -50,6 +50,14 @@ Estas comprobaciones **no** forman parte del criterio de validación local. Qued
 
 ---
 
+## Checklist previo a cada deploy
+
+Antes de publicar cualquier versión en el host:
+
+- [ ] **Migraciones Neon** — aplicar migraciones pendientes de `drizzle/` (`npm run db:push`; en CI sin TTY: `npm run db:push -- --force`). Paso obligatorio en cada deploy; no asumir que el esquema remoto está al día.
+
+---
+
 ## Pasos one-time por entorno
 
 Ejecutar en el host de producción (o la primera vez que se configure un entorno nuevo):
@@ -60,13 +68,15 @@ Copiar `.env.example` → variables del host. Cubrir al menos las filas obligato
 
 ### 2. Schema Neon
 
+Primera vez en un entorno nuevo (y en cada deploy posterior, ver checklist arriba):
+
 ```bash
 npm run db:push
 # CI / sin TTY:
 npm run db:push -- --force
 ```
 
-Si ya existían filas `paid` antes de la columna `paid_at`, aplicar también `drizzle/0005_paid_at.sql` (backfill `paid_at = created_at` donde `status = paid`).
+Migraciones SQL de referencia en `drizzle/` (p. ej. `0005_paid_at.sql`, `0006_ops_lifecycle.sql`, `0007_app_env.sql`) documentan backfills puntuales; `db:push` sincroniza el esquema completo desde `src/db/schema.ts`.
 
 ### 3. PostHog — Authorized URLs
 
