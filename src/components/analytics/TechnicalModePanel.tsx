@@ -1,4 +1,5 @@
 import type { AnalyticsDashboardPayload } from "@/lib/analytics-dashboard.functions";
+import { ENV_COMPARISON_NOT_COMPARABLE_NOTE } from "@/lib/analytics-env-comparison";
 import { cn } from "@/lib/utils";
 import { TileShell, renderTile } from "./analytics-ui";
 
@@ -70,24 +71,31 @@ export function TechnicalModePanel({
               subtitle="Neon paid_at vs alta_fulfilled"
             >
               {renderTile(tile, (d) => (
-                <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Neon</div>
-                    <div className="text-xl font-semibold tabular-nums">{d.neon}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">PostHog</div>
-                    <div className="text-xl font-semibold tabular-nums">{d.posthog}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground">Δ</div>
-                    <div
-                      className={cn(
-                        "text-xl font-semibold tabular-nums",
-                        d.delta !== 0 && "text-amber-700",
-                      )}
-                    >
-                      {d.delta > 0 ? `+${d.delta}` : d.delta}
+                <div>
+                  {!d.comparable ? (
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      {ENV_COMPARISON_NOT_COMPARABLE_NOTE}
+                    </p>
+                  ) : null}
+                  <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Neon</div>
+                      <div className="text-xl font-semibold tabular-nums">{d.neon}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">PostHog</div>
+                      <div className="text-xl font-semibold tabular-nums">{d.posthog}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Δ</div>
+                      <div
+                        className={cn(
+                          "text-xl font-semibold tabular-nums",
+                          d.comparable && d.delta !== 0 && "text-amber-700",
+                        )}
+                      >
+                        {d.delta > 0 ? `+${d.delta}` : d.delta}
+                      </div>
                     </div>
                   </div>
                 </div>

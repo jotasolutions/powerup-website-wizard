@@ -5,7 +5,7 @@ import {
   LOW_SAMPLE_THRESHOLD,
   NARRATIVE_FUNNEL_STEPS,
 } from "@/lib/analytics-narrative";
-import { cn } from "@/lib/utils";
+import { ENV_COMPARISON_NOT_COMPARABLE_NOTE } from "@/lib/analytics-env-comparison";
 import { LowSampleNote, TileShell } from "./analytics-ui";
 
 function shortLabel(label: string): string {
@@ -123,7 +123,9 @@ export function NarrativeFunnel({
       ) : null}
 
       <footer className="mt-4 space-y-1 border-t pt-3 text-xs text-muted-foreground tabular-nums">
-        {reconciliation.delta === 0 ? (
+        {!reconciliation.comparable ? (
+          <p>{ENV_COMPARISON_NOT_COMPARABLE_NOTE}</p>
+        ) : reconciliation.delta === 0 ? (
           <p>
             Verificado N = N: {formatEsNumber(reconciliation.neon)} ={" "}
             {formatEsNumber(reconciliation.posthog)}

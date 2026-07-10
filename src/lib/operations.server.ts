@@ -1,6 +1,8 @@
 import { desc, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
+import type { DashboardAppEnvFilter } from "./analytics-posthog.server";
+import { withNeonAppEnv } from "./neon-env-filter.server";
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 const MS_HOUR = 60 * 60 * 1000;
@@ -163,15 +165,16 @@ const COLUMN_DEFS: Array<{
   },
 ];
 
-export async function getOperationsBoard(rangeDays: number): Promise<OpsBoardData> {
+export async function getOperationsBoard(
+  rangeDays: number,
+  appEnv: DashboardAppEnvFilter,
+  envColumnReady: boolean,
+): Promise<OpsBoardData> {
   const now = new Date();
   const since = new Date(now.getTime() - rangeDays * MS_DAY);
 
-  const rows = await getDb()
-    .select()
-    .from(altas)
-    .where(gte(altas.createdAt, since))
-    .orderBy(desc(altas.createdAt));
+  const where = withNeonAppEnv(appEnv, envColumnReady, gte(altas.createdAt, since));
+  const rows = await getDb().select().from(altas).where(where).orderBy(desc(altas.createdAt));
 
   const filtered = rows.filter((row) => row.createdAt >= since);
 
@@ -215,15 +218,16 @@ export type OpsCsvRow = {
   entregada: string;
 };
 
-export async function getOperationsCsvRows(rangeDays: number): Promise<OpsCsvRow[]> {
+export async function getOperationsCsvRows(
+  rangeDays: number,
+  appEnv: DashboardAppEnvFilter,
+  envColumnReady: boolean,
+): Promise<OpsCsvRow[]> {
   const now = new Date();
   const since = new Date(now.getTime() - rangeDays * MS_DAY);
 
-  const rows = await getDb()
-    .select()
-    .from(altas)
-    .where(gte(altas.createdAt, since))
-    .orderBy(desc(altas.createdAt));
+  const where = withNeonAppEnv(appEnv, envColumnReady, gte(altas.createdAt, since));
+  const rows = await getDb().select().from(altas).where(where).orderBy(desc(altas.createdAt));
 
   const COLUMN_LABELS: Record<OpsColumnId, string> = {
     contact_left: "Contacto dejado",

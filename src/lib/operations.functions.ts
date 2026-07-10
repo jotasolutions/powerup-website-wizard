@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { getNeonEnvFilterStatus } from "./neon-env-filter.server";
 import {
   getOperationsBoard,
   getOperationsCsvRows,
@@ -8,13 +9,17 @@ import {
   updateOpsNotes,
 } from "./operations.server";
 
-const RangeInput = z.object({
+const OpsInput = z.object({
   rangeDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).default(30),
+  appEnv: z.enum(["production", "all"]).default("production"),
 });
 
 export const fetchOperationsBoard = createServerFn({ method: "GET" })
-  .validator((input: unknown) => RangeInput.parse(input ?? {}))
-  .handler(async ({ data }) => getOperationsBoard(data.rangeDays));
+  .validator((input: unknown) => OpsInput.parse(input ?? {}))
+  .handler(async ({ data }) => {
+    const neonEnvStatus = await getNeonEnvFilterStatus();
+    return getOperationsBoard(data.rangeDays, data.appEnv, neonEnvStatus.columnReady);
+  });
 
 export const saveOpsNotes = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
@@ -40,9 +45,14 @@ export const setDelivered = createServerFn({ method: "POST" })
   });
 
 export const exportOperationsCsv = createServerFn({ method: "GET" })
-  .validator((input: unknown) => RangeInput.parse(input ?? {}))
+  .validator((input: unknown) => OpsInput.parse(input ?? {}))
   .handler(async ({ data }) => {
-    const rows = await getOperationsCsvRows(data.rangeDays);
+    const neonEnvStatus = await getNeonEnvFilterStatus();
+    const rows = await getOperationsCsvRows(
+      data.rangeDays,
+      data.appEnv,
+      neonEnvStatus.columnReady,
+    );
     const header = [
       "fecha",
       "restaurante",

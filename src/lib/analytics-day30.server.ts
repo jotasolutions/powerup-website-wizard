@@ -3,6 +3,8 @@ import { and, eq, isNotNull, lte, min } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 import { hasStripeConfig } from "./env.server";
+import type { NeonPanelQueryContext } from "./neon-env-filter.server";
+import { withNeonAppEnv } from "./neon-env-filter.server";
 import { retrieveStripeSubscription } from "./stripe.server";
 
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
@@ -121,31 +123,42 @@ export function aggregateDay30Retention(
   };
 }
 
-let cachedTile: { at: number; data: Day30SubscriptionTile } | null = null;
+let cachedTile: { at: number; cacheKey: string; data: Day30SubscriptionTile } | null = null;
 
 export function clearDay30SubscriptionCache(): void {
   cachedTile = null;
 }
 
-async function getOldestPaidAt(): Promise<Date | null> {
+async function getOldestPaidAt(ctx: NeonPanelQueryContext): Promise<Date | null> {
+  const where = withNeonAppEnv(
+    ctx.appEnv,
+    ctx.envColumnReady,
+    eq(altas.status, "paid"),
+    isNotNull(altas.paidAt),
+  );
   const [row] = await getDb()
     .select({ oldest: min(altas.paidAt) })
     .from(altas)
-    .where(and(eq(altas.status, "paid"), isNotNull(altas.paidAt)));
+    .where(where);
   return row?.oldest ?? null;
 }
 
-async function getMatureCohortMembers(): Promise<Day30CohortMember[]> {
+async function getMatureCohortMembers(ctx: NeonPanelQueryContext): Promise<Day30CohortMember[]> {
   const cutoff = addDays(new Date(), -30);
+  const where = withNeonAppEnv(
+    ctx.appEnv,
+    ctx.envColumnReady,
+    eq(altas.status, "paid"),
+    isNotNull(altas.paidAt),
+    lte(altas.paidAt, cutoff),
+  );
   const rows = await getDb()
     .select({
       stripeSubscriptionId: altas.stripeSubscriptionId,
       onetimeFeeAmount: altas.onetimeFeeAmount,
     })
     .from(altas)
-    .where(
-      and(eq(altas.status, "paid"), isNotNull(altas.paidAt), lte(altas.paidAt, cutoff)),
-    );
+    .where(where);
 
   return rows.map((row) => ({
     stripeSubscriptionId: row.stripeSubscriptionId,
@@ -164,12 +177,15 @@ async function resolveSubscriptionStatus(
   }
 }
 
-export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile> {
-  if (cachedTile && Date.now() - cachedTile.at < CACHE_TTL_MS) {
+export async function getDay30SubscriptionTile(
+  ctx: NeonPanelQueryContext,
+): Promise<Day30SubscriptionTile> {
+  const cacheKey = `${ctx.appEnv}:${ctx.envColumnReady}`;
+  if (cachedTile && cachedTile.cacheKey === cacheKey && Date.now() - cachedTile.at < CACHE_TTL_MS) {
     return cachedTile.data;
   }
 
-  const oldestPaidAt = await getOldestPaidAt();
+  const oldestPaidAt = await getOldestPaidAt(ctx);
   if (!oldestPaidAt) {
     const data: Day30SubscriptionTile = {
       mode: "waiting",
@@ -177,7 +193,7 @@ export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile>
       oldestPaidAt: null,
       matureDate: null,
     };
-    cachedTile = { at: Date.now(), data };
+    cachedTile = { at: Date.now(), cacheKey, data };
     return data;
   }
 
@@ -192,7 +208,7 @@ export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile>
       oldestPaidAt: isoOldest,
       matureDate: isoMature,
     };
-    cachedTile = { at: Date.now(), data };
+    cachedTile = { at: Date.now(), cacheKey, data };
     return data;
   }
 
@@ -202,11 +218,11 @@ export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile>
       matureDate: isoMature,
       reason: "STRIPE_SECRET_KEY no configurada — no se puede consultar el estado de suscripción.",
     };
-    cachedTile = { at: Date.now(), data };
+    cachedTile = { at: Date.now(), cacheKey, data };
     return data;
   }
 
-  const cohort = await getMatureCohortMembers();
+  const cohort = await getMatureCohortMembers(ctx);
   const statuses = await Promise.all(
     cohort.map(async (member) => {
       if (!member.stripeSubscriptionId) {
@@ -223,6 +239,6 @@ export async function getDay30SubscriptionTile(): Promise<Day30SubscriptionTile>
     ...aggregated,
     cachedAt: new Date().toISOString(),
   };
-  cachedTile = { at: Date.now(), data };
+  cachedTile = { at: Date.now(), cacheKey, data };
   return data;
 }

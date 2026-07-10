@@ -51,6 +51,8 @@ export const altas = pgTable("altas", {
   domainRegisteredAt: timestamp("domain_registered_at", { withTimezone: true }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   opsNotes: text("ops_notes"),
+  /** Entorno de alta (production | preview | development). Alineado con app_env en PostHog. */
+  appEnv: text("app_env").notNull().default("development"),
 });
 
 export const placeEnrichments = pgTable("place_enrichments", {

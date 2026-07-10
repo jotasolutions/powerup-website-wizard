@@ -10,6 +10,7 @@ import {
   type OperationsBoardPayload,
 } from "@/lib/operations.functions";
 import type { OpsAltaCard, OpsColumnId } from "@/lib/operations.server";
+import type { DashboardAppEnvFilter } from "@/lib/analytics-posthog.server";
 import { cn } from "@/lib/utils";
 
 type RangeDays = 7 | 30 | 90;
@@ -117,29 +118,34 @@ function OpsCard({
 export function OperationsBoard({
   rangeDays,
   onRangeChange,
+  appEnv,
 }: {
   rangeDays: RangeDays;
   onRangeChange: (days: RangeDays) => void;
+  appEnv: DashboardAppEnvFilter;
 }) {
   const loadBoard = useServerFn(fetchOperationsBoard);
   const downloadCsv = useServerFn(exportOperationsCsv);
   const [data, setData] = useState<OperationsBoardPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<OpsColumnId>>(new Set());
   const [csvBusy, setCsvBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const payload = await loadBoard({ data: { rangeDays } });
+      const payload = await loadBoard({ data: { rangeDays, appEnv } });
       setData(payload);
     } catch (e) {
       console.error(e);
       setData(null);
+      setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [loadBoard, rangeDays]);
+  }, [loadBoard, rangeDays, appEnv]);
 
   useEffect(() => {
     void refresh();
@@ -148,7 +154,7 @@ export function OperationsBoard({
   const handleCsv = async () => {
     setCsvBusy(true);
     try {
-      const { csv, filename } = await downloadCsv({ data: { rangeDays } });
+      const { csv, filename } = await downloadCsv({ data: { rangeDays, appEnv } });
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -176,6 +182,9 @@ export function OperationsBoard({
     return (
       <p className="text-center text-sm text-destructive">
         No se pudo cargar el tablero de operaciones.
+        {loadError ? (
+          <span className="mt-2 block text-xs text-muted-foreground">{loadError}</span>
+        ) : null}
       </p>
     );
   }

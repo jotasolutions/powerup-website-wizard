@@ -27,9 +27,20 @@ export function MetricCardsRow({
           ) : (
             <LowSampleNote n={d.leads} />
           )}
-          {d.posthogLeads != null && d.posthogLeads !== d.leads ? (
+          {d.posthogLeads != null &&
+          d.envComparisonComparable &&
+          d.posthogLeads !== d.leads ? (
             <p className="mt-2 text-xs text-amber-700 tabular-nums">
-              Neon registra {formatEsNumber(d.leads)} contactos; PostHog {formatEsNumber(d.posthogLeads)}.
+              Neon registra {formatEsNumber(d.leads)} contactos; PostHog{" "}
+              {formatEsNumber(d.posthogLeads)}.
+            </p>
+          ) : null}
+          {d.posthogLeads != null &&
+          !d.envComparisonComparable &&
+          d.posthogLeads !== d.leads ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Neon registra {formatEsNumber(d.leads)} contactos; PostHog{" "}
+              {formatEsNumber(d.posthogLeads)} (no comparable: filtro de entorno solo en PostHog).
             </p>
           ) : null}
         </TileShell>

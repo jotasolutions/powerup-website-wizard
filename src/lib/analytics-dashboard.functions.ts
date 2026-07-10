@@ -45,7 +45,11 @@ import {
   getInternalAnalyticsPanelSlug,
   getInternalAnalyticsReplayUrl,
 } from "./env.server";
-import { DEFAULT_ANALYTICS_PANEL_SLUG } from "./analytics-panel.constants";
+import {
+  getNeonEnvFilterStatus,
+  isEnvComparisonComparable,
+  type NeonPanelQueryContext,
+} from "./neon-env-filter.server";
 
 export type TileResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -57,6 +61,7 @@ const DashboardInput = z.object({
 export type CvrLeadPaidData = Awaited<ReturnType<typeof getLeadToPaidCvr14d>> & {
   posthogLeads: number | null;
   posthogLeadsError?: string;
+  envComparisonComparable: boolean;
 };
 
 export type NarrativeFunnelData = {
@@ -64,7 +69,7 @@ export type NarrativeFunnelData = {
   worstDropoff: WorstDropoff | null;
   placeOrigin: { google: number; manual: number };
   fulfilledBreakdown: { domainPaid: number; subdomainFree: number };
-  reconciliation: { neon: number; posthog: number; delta: number };
+  reconciliation: ReconciliationData;
   topCount: number;
 };
 
@@ -102,6 +107,13 @@ export type WhyChannelsData = {
   channels: Array<{ utm: string; starts: number; activations: number }>;
 };
 
+export type ReconciliationData = {
+  neon: number;
+  posthog: number;
+  delta: number;
+  comparable: boolean;
+};
+
 export type AnalyticsDashboardPayload = {
   meta: {
     rangeDays: number;
@@ -109,6 +121,7 @@ export type AnalyticsDashboardPayload = {
     replayUrl: string | null;
     checkoutScenarioSince: string;
     panelSlug: string;
+    neonEnvFilterReady: boolean;
   };
   hero: {
     registrations: TileResult<RegistrationsHeroData>;
@@ -151,8 +164,8 @@ export type AnalyticsDashboardPayload = {
         : never
     >;
     reconciliation: {
-      days7: TileResult<{ neon: number; posthog: number; delta: number }>;
-      days30: TileResult<{ neon: number; posthog: number; delta: number }>;
+      days7: TileResult<ReconciliationData>;
+      days30: TileResult<ReconciliationData>;
     };
   };
 };
@@ -167,26 +180,28 @@ async function wrapNeon<T>(fn: () => Promise<T>): Promise<TileResult<T>> {
 
 async function reconcileDays(
   days: number,
-  appEnv: DashboardAppEnvFilter,
-): Promise<TileResult<{ neon: number; posthog: number; delta: number }>> {
-  const neonResult = await wrapNeon(() => countNeonPaidInLastDays(days));
+  neonCtx: NeonPanelQueryContext,
+  comparable: boolean,
+): Promise<TileResult<ReconciliationData>> {
+  const neonResult = await wrapNeon(() => countNeonPaidInLastDays(neonCtx, days));
   if (!neonResult.ok) return neonResult;
 
-  const ph = await countAltaFulfilledInRange({ days, appEnv });
+  const ph = await countAltaFulfilledInRange({ days, appEnv: neonCtx.appEnv });
   if (!ph.ok) return ph;
 
   const neon = neonResult.data;
   const posthog = ph.data.count;
-  return { ok: true, data: { neon, posthog, delta: neon - posthog } };
+  return { ok: true, data: { neon, posthog, delta: neon - posthog, comparable } };
 }
 
 async function buildCvrLeadPaidTile(
+  neonCtx: NeonPanelQueryContext,
+  comparable: boolean,
   rangeDays: number,
-  appEnv: DashboardAppEnvFilter,
 ): Promise<TileResult<CvrLeadPaidData>> {
   const [neonResult, phLeads] = await Promise.all([
-    wrapNeon(() => getLeadToPaidCvr14d(rangeDays)),
-    countAltaLeadSavedInRange({ days: rangeDays, appEnv }),
+    wrapNeon(() => getLeadToPaidCvr14d(neonCtx, rangeDays)),
+    countAltaLeadSavedInRange({ days: rangeDays, appEnv: neonCtx.appEnv }),
   ]);
 
   if (!neonResult.ok) return neonResult;
@@ -197,6 +212,7 @@ async function buildCvrLeadPaidTile(
       ...neonResult.data,
       posthogLeads: phLeads.ok ? phLeads.data.count : null,
       posthogLeadsError: phLeads.ok ? undefined : phLeads.error,
+      envComparisonComparable: comparable,
     },
   };
 }
@@ -230,14 +246,17 @@ function buildDomainPreferenceHero(
 }
 
 function buildSectionLights(params: {
-  reconciliation7: TileResult<{ neon: number; posthog: number; delta: number }>;
+  reconciliation7: TileResult<ReconciliationData>;
   paidInRange: number;
   topCount: number;
   worstDropoff: WorstDropoff | null;
   gmbErrorsWeek: number;
   gmbErrorsOk: boolean;
 }): SectionLights {
+  const reconciliationComparable =
+    params.reconciliation7.ok && params.reconciliation7.data.comparable;
   const funcionaGreen =
+    reconciliationComparable &&
     params.reconciliation7.ok &&
     params.reconciliation7.data.delta === 0 &&
     params.paidInRange >= 1;
@@ -292,8 +311,14 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
   .validator((input: unknown) => DashboardInput.parse(input ?? {}))
   .handler(async ({ data }): Promise<AnalyticsDashboardPayload> => {
     const { rangeDays, appEnv } = data;
+    const neonEnvStatus = await getNeonEnvFilterStatus();
+    const envComparisonComparable = isEnvComparisonComparable(appEnv, neonEnvStatus);
+    const neonCtx: NeonPanelQueryContext = {
+      appEnv,
+      envColumnReady: neonEnvStatus.columnReady,
+    };
 
-    const day30Result = await wrapNeon(() => getDay30SubscriptionTile());
+    const day30Result = await wrapNeon(() => getDay30SubscriptionTile(neonCtx));
 
     const [
       narrativeFunnelRaw,
@@ -353,18 +378,18 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
         appEnv,
         breakdownKey: "utm_source",
       }),
-      reconcileDays(7, appEnv),
-      reconcileDays(30, appEnv),
-      buildCvrLeadPaidTile(rangeDays, appEnv),
+      reconcileDays(7, neonCtx, envComparisonComparable),
+      reconcileDays(30, neonCtx, envComparisonComparable),
+      buildCvrLeadPaidTile(neonCtx, envComparisonComparable, rangeDays),
       countGmbErrorsInDays({ days: 7, appEnv }),
       queryUtmChannelActivation({ rangeDays, appEnv }),
-      wrapNeon(() => countNeonPaidInLastDays(rangeDays)),
-      wrapNeon(() => getRegistrationsHeroMetrics(rangeDays)),
+      wrapNeon(() => countNeonPaidInLastDays(neonCtx, rangeDays)),
+      wrapNeon(() => getRegistrationsHeroMetrics(neonCtx, rangeDays)),
       queryDomainTypeChosenBreakdown({ rangeDays, appEnv }),
       queryDomainTypeActivationFunnel({ rangeDays, appEnv }),
       queryWizardStartedTiming({ rangeDays, appEnv }),
       rangeDays === 7 || rangeDays === 30
-        ? wrapNeon(() => getDailyRegistrations(rangeDays))
+        ? wrapNeon(() => getDailyRegistrations(neonCtx, rangeDays))
         : Promise.resolve({ ok: true as const, data: [] as DailyRegistrationPoint[] }),
     ]);
 
@@ -375,10 +400,9 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
     const worstDropoff = narrativeSteps.length > 0 ? computeWorstDropoff(narrativeSteps) : null;
     const topCount = narrativeSteps[0]?.count ?? 0;
 
-    const reconciliationForFunnel =
-      reconciliation30.ok
-        ? reconciliation30.data
-        : { neon: 0, posthog: 0, delta: 0 };
+    const reconciliationForFunnel: ReconciliationData = reconciliation30.ok
+      ? reconciliation30.data
+      : { neon: 0, posthog: 0, delta: 0, comparable: envComparisonComparable };
 
     const narrativeFunnel: TileResult<NarrativeFunnelData> =
       narrativeFunnelRaw.ok && placeOrigin.ok && fulfilledBreakdown.ok
@@ -438,6 +462,7 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
         replayUrl: getInternalAnalyticsReplayUrl() ?? null,
         checkoutScenarioSince: getCheckoutScenarioInstrumentedSince(),
         panelSlug: getInternalAnalyticsPanelSlug(),
+        neonEnvFilterReady: neonEnvStatus.columnReady,
       },
       hero: {
         registrations: registrationsHero,

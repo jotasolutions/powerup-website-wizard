@@ -1,6 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
+import { getServerAppEnv } from "./posthog-server";
 
 export type AltaInsertPayload = {
   restaurant_name: string;
@@ -75,6 +76,7 @@ export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
       termsDocumentUrl: payload.terms_document_url,
       consentUserAgent: payload.consent_user_agent,
       consentIp: payload.consent_ip,
+      appEnv: getServerAppEnv(),
       status: "pending_payment",
     })
     .returning({ id: altas.id });
