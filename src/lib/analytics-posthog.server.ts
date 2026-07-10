@@ -37,6 +37,26 @@ type TrendsResponse = {
 
 export type DashboardAppEnvFilter = "production" | "all";
 
+const POSTHOG_QUERY_TIMEOUT_MS = 25_000;
+
+async function fetchPostHogApi(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), POSTHOG_QUERY_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`PostHog query timeout (${POSTHOG_QUERY_TIMEOUT_MS / 1000}s)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function appEnvHogQLClause(filter: DashboardAppEnvFilter): string {
   if (filter === "all") return "";
   return ` AND properties.app_env = 'production'`;
@@ -54,7 +74,7 @@ export async function executeHogQLQuery(
   const projectId = getPostHogProjectId();
 
   try {
-    const res = await fetch(`${host}/api/projects/${projectId}/query/`, {
+    const res = await fetchPostHogApi(`${host}/api/projects/${projectId}/query/`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -98,7 +118,7 @@ export async function executePostHogQuery<T>(
   const projectId = getPostHogProjectId();
 
   try {
-    const res = await fetch(`${host}/api/projects/${projectId}/query/`, {
+    const res = await fetchPostHogApi(`${host}/api/projects/${projectId}/query/`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -7,21 +7,26 @@ const panelSearchSchema = z.object({
   tab: z.enum(["diagnostico", "operaciones"]).optional().default("diagnostico"),
 });
 
+function parsePanelSearch(search: Record<string, unknown>) {
+  const parsed = panelSearchSchema.safeParse(search);
+  if (parsed.success) return parsed.data;
+  const tab = search.tab;
+  if (tab === "operaciones" || tab === "diagnostico") {
+    return { tab };
+  }
+  return { tab: "diagnostico" as const };
+}
+
 export const Route = createFileRoute("/panel/$slug")({
-  validateSearch: (search) => panelSearchSchema.parse(search),
+  validateSearch: (search) => parsePanelSearch(search as Record<string, unknown>),
   beforeLoad: ({ params }) => {
     if (params.slug !== DEFAULT_ANALYTICS_PANEL_SLUG) {
       throw redirect({ to: "/" });
     }
   },
-  head: ({ search }) => ({
+  head: () => ({
     meta: [
-      {
-        title:
-          search.tab === "operaciones"
-            ? "Operaciones · PowerUp"
-            : "Diagnóstico Alta · PowerUp",
-      },
+      { title: "Diagnóstico Alta · PowerUp" },
       { name: "robots", content: "noindex" },
     ],
   }),

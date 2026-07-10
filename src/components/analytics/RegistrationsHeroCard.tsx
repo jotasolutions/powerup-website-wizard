@@ -1,6 +1,6 @@
-import type { RegistrationsHeroData } from "@/lib/analytics-hero.types";
+import type { RegistrationsHeroData, DailyRegistrationPoint } from "@/lib/analytics-hero.types";
 import { formatEsEur, formatEsNumber, pctChange } from "@/lib/analytics-narrative";
-import type { DailyRegistrationPoint } from "@/lib/analytics-hero.types";
+import { DailyRegistrationsChart } from "./DailyRegistrationsChart";
 import { TileShell } from "./analytics-ui";
 
 function WeeklySparkline({ values }: { values: number[] }) {
