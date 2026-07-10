@@ -42,6 +42,15 @@ export const altas = pgTable("altas", {
   stripeSessionId: text("stripe_session_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripeCustomerId: text("stripe_customer_id"),
+  /** Momento en que se creó la sesión Stripe Checkout (pending). */
+  checkoutStartedAt: timestamp("checkout_started_at", { withTimezone: true }),
+  /** Email capturado en Stripe Checkout al pagar. */
+  customerEmail: text("customer_email"),
+  /** Solo valores manuales; null = estado derivado en lectura. */
+  opsStatus: text("ops_status"),
+  domainRegisteredAt: timestamp("domain_registered_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  opsNotes: text("ops_notes"),
 });
 
 export const placeEnrichments = pgTable("place_enrichments", {

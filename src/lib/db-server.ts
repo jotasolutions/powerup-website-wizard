@@ -28,6 +28,7 @@ export type FulfillAltaFromCheckoutParams = {
   stripeSessionId: string | null;
   stripeSubscriptionId: string | null;
   stripeCustomerId: string | null;
+  customerEmail?: string | null;
 };
 
 export type FulfillAltaOutcome =
@@ -101,6 +102,7 @@ export async function fulfillAltaFromCheckout(
       stripeSessionId: params.stripeSessionId,
       stripeSubscriptionId: params.stripeSubscriptionId,
       stripeCustomerId: params.stripeCustomerId,
+      ...(params.customerEmail != null ? { customerEmail: params.customerEmail } : {}),
     })
     .where(and(eq(altas.id, params.altaId), ne(altas.status, "paid")))
     .returning({ id: altas.id });
@@ -166,4 +168,14 @@ export async function markAltaPaidMock(altaId: string): Promise<FulfillAltaOutco
 export async function getAltaById(altaId: string) {
   const [row] = await getDb().select().from(altas).where(eq(altas.id, altaId)).limit(1);
   return row ?? null;
+}
+
+export async function markCheckoutStarted(altaId: string, stripeSessionId: string) {
+  await getDb()
+    .update(altas)
+    .set({
+      stripeSessionId,
+      checkoutStartedAt: new Date(),
+    })
+    .where(and(eq(altas.id, altaId), eq(altas.status, "pending_payment")));
 }

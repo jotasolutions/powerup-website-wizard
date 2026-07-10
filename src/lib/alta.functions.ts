@@ -17,6 +17,7 @@ import {
   getAltaById,
   insertAlta,
   markAltaPaidMock,
+  markCheckoutStarted,
   type AltaInsertPayload,
 } from "./db-server";
 import {
@@ -331,6 +332,8 @@ export const createCheckout = createServerFn({ method: "POST" })
       throw new Error("Stripe no devolvió una URL de checkout.");
     }
 
+    await markCheckoutStarted(data.alta_id, session.id);
+
     captureServerEvent({
       distinctId: data.alta_id,
       event: "checkout_session_created",
@@ -374,6 +377,7 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
       stripeSessionId: session.id,
       stripeSubscriptionId: normalizeStripeId(session.subscription),
       stripeCustomerId: normalizeStripeId(session.customer),
+      customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
     });
 
     if (result.outcome === "still_pending") {

@@ -60,6 +60,7 @@ async function handleCheckoutSessionCompleted(
     stripeSessionId: session.id,
     stripeSubscriptionId,
     stripeCustomerId,
+    customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
   });
 
   if (result.outcome === "fulfilled") {
