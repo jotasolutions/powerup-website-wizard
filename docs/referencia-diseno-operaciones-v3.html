@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Referencia de diseño — Operaciones v1 (registro del proceso)</title>
+<!--
+  REFERENCIA DE DISEÑO PIXEL-PERFECT para /panel/m4x8nq2k?tab=operaciones.
+  Sustituye a toda referencia anterior de Operaciones.
+
+  PRINCIPIO DE LA V1: registrar, no gestionar. Cada interacción deja timestamp
+  (pago, dominio registrado, entrega, WhatsApp abierto, nota). Nada de workflows
+  de archivado ni recuperación — eso es v2, con los datos que esta v1 acumule.
+
+  ESTRUCTURA:
+  1. ENTREGA (kanban, 3 columnas): clientes que pagaron/activaron. Siempre visible
+     al completo, SIN filtro de fechas — es trabajo abierto y compromiso con cliente.
+  2. LEADS (lista compacta, 2 grupos): aún no han activado. Alto volumen (20-100/sem)
+     → filas densas, no tarjetas. Grupos por criterio de ACCIÓN:
+     - "Para reenganchar": dejaron el pago (>48h desde checkout iniciado sin activar)
+       o parados >3 días desde contacto sin llegar a checkout. ESTE es el trabajo.
+     - "Recientes — en curso": dentro de su proceso natural. No tocar.
+     El paso entre grupos es automático por tiempo. Umbrales en ops-config.ts.
+  3. Línea de resultado sobre la lista: leads del período → cuántos ACTIVARON (north
+     star, en verde) · cuántos para reenganchar · cuántos en curso. Quien activa sale
+     de Leads y aparece en Entrega.
+
+  Paleta (idéntica a referencia-diseno-panel-v4.html):
+    fondo #FAFAF7  texto #1A1A17  secundario #6B6A64  muted #9C9B93
+    borde #E4E3DC  borde fuerte #C9C8C0  card #FFFFFF  hundido #F3F2EC
+    verde: fondo #E1F5EE texto #0F6E56 borde #A9DCC9
+    ámbar: fondo #FAEEDA texto #854F0B sólido #EF9F27 borde suave #EAC58A
+    azul:  fondo #E6F1FB texto #185FA5
+
+  DATOS NUEVOS QUE REQUIERE (mínimos, todos timestamps de registro):
+  - wa_opened_at (timestamptz null) en altas: se setea al click del botón WhatsApp.
+    La etiqueta dice "abierto el N jul" — registra apertura del chat, NO envío.
+  - Los grupos de leads y la línea de resultado se DERIVAN en lectura de campos
+    existentes (created_at, stripe_session_id, status, paid_at). Sin campos nuevos.
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #FAFAF7; color: #1A1A17; padding: 32px; max-width: 1100px; margin: 0 auto; font-size: 16px; line-height: 1.6; }
+  .num { font-variant-numeric: tabular-nums; }
+  button { font-family: inherit; cursor: pointer; border: 0.5px solid #C9C8C0; background: #FFFFFF; color: #1A1A17; border-radius: 6px; }
+  .pill { font-size: 12px; padding: 4px 12px; border-radius: 999px; background: transparent; }
+  a { color: #185FA5; text-decoration: none; }
+  .col { background: #F3F2EC; border-radius: 12px; padding: 12px; }
+  .col-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding: 0 4px; gap: 8px; }
+  .col-title { font-size: 13px; font-weight: 500; }
+  .col-count { font-size: 12px; color: #9C9B93; white-space: nowrap; }
+  .kcard { background: #FFFFFF; border: 0.5px solid #E4E3DC; border-radius: 8px; padding: 10px 12px; }
+  .kcard + .kcard { margin-top: 8px; }
+  .kcard-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .kcard-name { font-size: 13px; font-weight: 500; }
+  .kcard-age { font-size: 11px; color: #9C9B93; white-space: nowrap; }
+  .kcard-meta { font-size: 12px; color: #6B6A64; margin-top: 2px; }
+  .kcard-stamp { font-size: 11px; color: #9C9B93; margin-top: 4px; }
+  .btn-full { display: block; width: 100%; font-size: 12px; padding: 5px 10px; margin-top: 8px; }
+  .btn-wa { font-size: 12px; padding: 2px 10px; background: #E1F5EE; border-color: #A9DCC9; color: #0F6E56; font-weight: 500; }
+  .btn-ghost { font-size: 12px; padding: 2px 8px; border-color: transparent; background: transparent; color: #9C9B93; }
+  .chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip-new { background: #E6F1FB; color: #185FA5; }
+  .chip-warn { background: #FAEEDA; color: #854F0B; }
+  .lead-table { background: #FFFFFF; border: 0.5px solid #E4E3DC; border-radius: 12px; overflow: hidden; }
+  .lead-row { display: grid; grid-template-columns: 2.2fr 1.4fr 1fr 1fr 1.6fr; gap: 8px; padding: 10px 16px; font-size: 13px; align-items: center; }
+  .lead-row + .lead-row { border-top: 0.5px solid #E4E3DC; }
+  .lead-sub { font-size: 11px; color: #9C9B93; font-weight: 400; }
+  .group-label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .empty { font-size: 12px; color: #9C9B93; text-align: center; padding: 18px 8px; }
+</style>
+</head>
+<body>
+
+<!-- ============ CABECERA: sin selector de rango global. Solo CSV. ============ -->
+<div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px;">
+  <div>
+    <div style="font-size: 18px; font-weight: 500;">Operaciones</div>
+    <div style="font-size: 12px; color: #9C9B93; margin-top: 2px;">Registro del proceso de alta y entrega</div>
+  </div>
+  <button class="pill">⬇ Descargar CSV</button>
+</div>
+
+<!-- ============ SECCIÓN 1: ENTREGA ============
+     Sin filtro de fechas: TODO el trabajo abierto, siempre. -->
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+  <span style="font-size: 13px; font-weight: 500;">Entrega</span>
+  <span style="font-size: 13px; color: #9C9B93;">clientes que activaron — siempre visible al completo</span>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 28px;">
+
+  <!-- Col: Dominio por registrar. Contador destaca atrasadas (>3 días desde paid_at). -->
+  <div class="col">
+    <div class="col-head">
+      <span class="col-title">Dominio por registrar</span>
+      <span class="col-count num" style="color: #854F0B; font-weight: 500;">1 atrasado</span>
+    </div>
+    <!-- Card ATRASADA: borde lateral ámbar 3px, edad ámbar bold, timestamp de pago,
+         botón de transición como elemento MÁS grande (ancho completo, al final). -->
+    <div class="kcard" style="border-left: 3px solid #EF9F27; border-radius: 0 8px 8px 0;">
+      <div class="kcard-top">
+        <span class="kcard-name">Trattoria Piemontese</span>
+        <span class="kcard-age num" style="color: #854F0B; font-weight: 500;">4 días</span>
+      </div>
+      <div class="kcard-meta">Paolo · trattoriapiemontese.es · <span class="num">90 €</span></div>
+      <div class="kcard-stamp num">Pagó el 6 jul</div>
+      <button class="btn-full">Dominio registrado ✓</button>
+    </div>
+  </div>
+
+  <!-- Col: Construyendo (subdominios entran aquí directo; dominios tras registrarse) -->
+  <div class="col">
+    <div class="col-head">
+      <span class="col-title">Construyendo</span>
+      <span class="col-count num">1</span>
+    </div>
+    <div class="kcard">
+      <div class="kcard-top">
+        <span class="kcard-name">La Taberna de Marisa</span>
+        <span class="kcard-age num">1 día</span>
+      </div>
+      <div class="kcard-meta">Marisa · subdominio · <span class="num">0 €</span></div>
+      <div class="kcard-stamp num">Activó el 9 jul</div>
+      <button class="btn-full">Página entregada ✓</button>
+    </div>
+  </div>
+
+  <!-- Col: Entregada. Terminal de este panel: handoff a customer success.
+       Cards apagadas, enlace a la página real, "entregada en N días"
+       (delivered_at − paid_at: primera métrica del futuro dpto de operaciones).
+       10 visibles + "ver todas". -->
+  <div class="col">
+    <div class="col-head">
+      <span class="col-title">Entregada <span style="font-weight: 400; color: #9C9B93;">→ customer success</span></span>
+      <span class="col-count num">1</span>
+    </div>
+    <div class="kcard" style="opacity: 0.85;">
+      <div class="kcard-top">
+        <span class="kcard-name"><span style="color: #0F6E56;">✓</span> Goyos</span>
+        <span class="kcard-age num">30 jun</span>
+      </div>
+      <div class="kcard-meta"><a href="#">restaurantegoyos.es ↗</a> · entregada en <span class="num">3 días</span></div>
+    </div>
+    <div style="text-align: right; margin-top: 8px;"><a href="#" style="font-size: 11px; color: #9C9B93;">ver todas</a></div>
+  </div>
+</div>
+
+<!-- ============ SECCIÓN 2: LEADS ============ -->
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+  <div style="display: flex; align-items: center; gap: 8px;">
+    <span style="font-size: 13px; font-weight: 500;">Leads</span>
+    <span style="font-size: 13px; color: #9C9B93;">aún no han activado · últimos 14 días</span>
+  </div>
+  <a href="#" style="font-size: 11px; color: #9C9B93;">ver anteriores (12)</a>
+</div>
+
+<!-- Línea de resultado: la north star visible dentro de Operaciones.
+     "Activaron" = alta_fulfilled (incluye trials 0€). Salen de Leads → Entrega. -->
+<div style="display: flex; align-items: center; gap: 6px; background: #F3F2EC; border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; font-size: 13px; flex-wrap: wrap;">
+  <span style="color: #6B6A64;">Últimos 30 días:</span>
+  <span class="num" style="font-weight: 500;">14 leads</span>
+  <span style="color: #9C9B93;">→</span>
+  <span class="num" style="color: #0F6E56; font-weight: 500;">3 activaron la prueba ✓</span>
+  <span style="color: #9C9B93;">·</span>
+  <span class="num" style="color: #854F0B; font-weight: 500;">4 para reenganchar</span>
+  <span style="color: #9C9B93;">·</span>
+  <span class="num" style="color: #6B6A64;">7 recientes en curso</span>
+</div>
+
+<!-- Grupo 1: PARA REENGANCHAR (el trabajo). Contenedor con borde ámbar suave.
+     Reglas de entrada (ops-config.ts): checkout iniciado >48h sin activar → chip
+     "dejó el pago"; sin checkout y >3 días desde created_at → chip "parado N días". -->
+<div class="group-label">
+  <span class="dot" style="background: #EF9F27;"></span>
+  <span style="font-size: 12px; font-weight: 500; color: #854F0B;">Para reenganchar</span>
+  <span style="font-size: 12px; color: #9C9B93;">dejaron el pago o llevan días parados — este es el trabajo</span>
+</div>
+<div class="lead-table" style="border-color: #EAC58A; margin-bottom: 14px;">
+  <!-- Cabecera de columnas (solo en el primer grupo) -->
+  <div class="lead-row" style="padding: 8px 16px; font-size: 11px; color: #9C9B93;">
+    <span>Restaurante</span><span>Contacto</span><span>Eligió</span><span>Estado</span><span>Registro de contacto</span>
+  </div>
+  <div class="lead-row">
+    <span style="font-weight: 500;">Voltereta Bali <span class="lead-sub num">3 días</span></span>
+    <span style="color: #6B6A64;">Fede</span>
+    <span style="color: #6B6A64;">dominio · <span class="num">90 €</span></span>
+    <span><span class="chip chip-warn">dejó el pago</span></span>
+    <span style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-wa">🟢 WhatsApp</button>
+      <button class="btn-ghost">+ nota</button>
+    </span>
+  </div>
+  <div class="lead-row">
+    <span style="font-weight: 500;">Pizzería Da Michele <span class="lead-sub num">6 días</span></span>
+    <span style="color: #6B6A64;">Ciro</span>
+    <span style="color: #6B6A64;">subdominio</span>
+    <span><span class="chip chip-warn num">parado 6 días</span></span>
+    <span style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-wa">🟢 WhatsApp</button>
+      <button class="btn-ghost">+ nota</button>
+    </span>
+  </div>
+</div>
+
+<!-- Grupo 2: RECIENTES — EN CURSO (no tocar). Contenedor neutro. -->
+<div class="group-label">
+  <span class="dot" style="background: #C9C8C0;"></span>
+  <span style="font-size: 12px; font-weight: 500; color: #6B6A64;">Recientes — en curso</span>
+  <span style="font-size: 12px; color: #9C9B93;">acaban de entrar, dejarlos avanzar solos</span>
+</div>
+<div class="lead-table">
+  <div class="lead-row">
+    <span style="font-weight: 500;">Kesté café y tapas <span class="lead-sub">hace 2 h</span></span>
+    <span style="color: #6B6A64;">Anto</span>
+    <span style="color: #6B6A64;">subdominio</span>
+    <span><span class="chip chip-new">nuevo</span></span>
+    <span style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-wa">🟢 WhatsApp</button>
+      <button class="btn-ghost">+ nota</button>
+    </span>
+  </div>
+  <div class="lead-row">
+    <span style="font-weight: 500;">Bar Tolo <span class="lead-sub">ayer</span></span>
+    <span style="color: #6B6A64;">José</span>
+    <span style="color: #6B6A64;">subdominio</span>
+    <span><span class="chip chip-new">nuevo</span></span>
+    <span style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-wa">🟢 WhatsApp</button>
+      <span style="font-size: 11px; color: #6B6A64;">📝 preguntó por fotos</span>
+    </span>
+  </div>
+</div>
+
+<!-- Estado vacío de un grupo (aplicar a cualquiera de los dos): -->
+<div style="margin-top: 20px; max-width: 420px;">
+  <div class="lead-table"><div class="empty">Nadie para reenganchar ahora ✓</div></div>
+</div>
+
+<!-- ============ VISTA EXPANDIDA: HISTÓRICO DE LEADS ============
+     Se activa al pulsar "ver anteriores (N)" — NO es página ni pestaña nueva:
+     la misma lista se expande a TODOS los leads y aparece el buscador.
+     El enlace pasa a decir "ver solo recientes" para volver.
+     Propósito: consultar, no trabajar — por eso aquí SÍ aparecen los que
+     activaron (chip verde) y los desenlaces de cada lead.
+     Búsqueda por nombre de restaurante, contacto o teléfono (filtrado en
+     cliente sobre los datos ya cargados basta a este volumen).
+     Columna "Desenlace" derivada: activó ✓ (paid_at) · dejó el pago ·
+     se enfrió (sin checkout, >14 días). Cero campos nuevos. -->
+<div style="margin-top: 28px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 13px; font-weight: 500;">Histórico de leads</span>
+      <span style="font-size: 13px; color: #9C9B93;">todos · <span class="num">26</span></span>
+    </div>
+    <a href="#" style="font-size: 11px; color: #9C9B93;">ver solo recientes</a>
+  </div>
+  <input type="search" placeholder="Buscar por restaurante, contacto o teléfono…" style="width: 100%; font-family: inherit; font-size: 13px; padding: 7px 12px; border: 0.5px solid #C9C8C0; border-radius: 8px; background: #FFFFFF; color: #1A1A17; margin-bottom: 10px;">
+  <div class="lead-table">
+    <div class="lead-row" style="padding: 8px 16px; font-size: 11px; color: #9C9B93;">
+      <span>Restaurante</span><span>Contacto</span><span>Eligió</span><span>Desenlace</span><span>Registro de contacto</span>
+    </div>
+    <!-- Lead que ACTIVÓ: chip verde. Solo visible en esta vista, no en la de trabajo. -->
+    <div class="lead-row">
+      <span style="font-weight: 500;">La Taberna de Marisa <span class="lead-sub num">9 jul</span></span>
+      <span style="color: #6B6A64;">Marisa</span>
+      <span style="color: #6B6A64;">subdominio</span>
+      <span><span class="chip" style="background: #E1F5EE; color: #0F6E56;">activó ✓</span></span>
+      <span class="lead-sub">—</span>
+    </div>
+    <!-- Lead abierto: mismo chip que en la vista de trabajo -->
+    <div class="lead-row">
+      <span style="font-weight: 500;">Voltereta Bali <span class="lead-sub num">7 jul</span></span>
+      <span style="color: #6B6A64;">Fede</span>
+      <span style="color: #6B6A64;">dominio · <span class="num">90 €</span></span>
+      <span><span class="chip chip-warn">dejó el pago</span></span>
+      <span style="display: flex; gap: 6px; align-items: center;">
+        <button class="btn-wa">🟢 WhatsApp</button>
+        <button class="btn-ghost">+ nota</button>
+      </span>
+    </div>
+    <!-- Lead antiguo sin conversión: "se enfrió". El botón WhatsApp sigue disponible
+         (reenganche tardío posible desde aquí). -->
+    <div class="lead-row">
+      <span style="font-weight: 500;">Casa Montaña <span class="lead-sub num">2 jun</span></span>
+      <span style="color: #6B6A64;">Emiliano</span>
+      <span style="color: #6B6A64;">subdominio</span>
+      <span><span class="chip" style="background: #F3F2EC; color: #9C9B93;">se enfrió</span></span>
+      <span style="display: flex; gap: 6px; align-items: center;">
+        <button class="btn-wa">🟢 WhatsApp</button>
+        <button class="btn-ghost">+ nota</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!--
+  REGLAS TRANSVERSALES:
+  1. SIN selector de rango global en esta pestaña. Entrega: siempre todo lo abierto;
+     "Entregada" con "ver todas". Leads: últimos 14 días visibles + "ver anteriores (N)"
+     (los anteriores no se pierden: colapsados y en el CSV). La línea de resultado usa
+     30 días fijos.
+  2. Timestamps visibles en cada tarjeta de Entrega ("Pagó el 6 jul", "Activó el 9 jul")
+     y en el registro de contacto ("abierto el 8 jul"). Registrar es el producto.
+  3. El click del botón WhatsApp setea wa_opened_at (dato silencioso, SIN UI en v1) y
+     abre wa.me/<tel>. No se muestra etiqueta: el registro sería incompleto (los
+     contactos hechos desde el móvil directo no pasan por el botón) y una etiqueta
+     parcial implicaría más de lo que se sabe. El registro de contacto visible es la
+     nota. La etiqueta podrá encenderse en v2 si un equipo trabaja desde el panel.
+  4. Teléfono nunca como texto plano — vive en el botón WhatsApp. El CSV sí lo lleva.
+  5. Nota: colapsada en "+ nota"; si existe, línea compacta clicable para editar.
+  6. Botón de transición = elemento más prominente de su card: ancho completo, al final.
+  7. Umbrales (atrasado >3d, dejó el pago >48h, parado >3d, leads visibles 14d) en
+     ops-config.ts, no hardcodeados.
+  8. Emojis de esta referencia → iconos del set del proyecto. tabular-nums en toda cifra.
+  9. Los grupos de leads y sus chips se derivan en lectura — el único campo nuevo del
+     schema es wa_opened_at.
+  10. Histórico: misma lista expandida, no ruta nueva. La vista de TRABAJO (corta, 2
+      grupos) es siempre la de por defecto al abrir la pestaña — el histórico nunca es
+      el estado inicial. Búsqueda por restaurante/contacto/teléfono, filtrado en cliente.
+      Desenlaces derivados: "activó ✓" (paid_at), "dejó el pago", "se enfrió" (sin
+      checkout >14d). Los que activaron solo aparecen en el histórico, nunca en la
+      vista de trabajo. El CSV exporta siempre el histórico completo.
+-->
+
+</body>
+</html>
