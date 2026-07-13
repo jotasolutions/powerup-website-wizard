@@ -1,4 +1,4 @@
-import { desc, eq, gte } from "drizzle-orm";
+import { desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 import type { DashboardAppEnvFilter } from "./analytics-posthog.server";
@@ -277,5 +277,15 @@ export async function markDelivered(altaId: string) {
   await getDb()
     .update(altas)
     .set({ deliveredAt: now, opsStatus: "delivered" })
+    .where(eq(altas.id, altaId));
+}
+
+/** Primer click en WhatsApp desde el panel; idempotente (COALESCE). */
+export async function markWaOpened(altaId: string) {
+  await getDb()
+    .update(altas)
+    .set({
+      waOpenedAt: sql`COALESCE(${altas.waOpenedAt}, NOW())`,
+    })
     .where(eq(altas.id, altaId));
 }

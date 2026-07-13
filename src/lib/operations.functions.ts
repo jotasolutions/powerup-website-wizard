@@ -6,6 +6,7 @@ import {
   getOperationsCsvRows,
   markDelivered,
   markDomainRegistered,
+  markWaOpened,
   updateOpsNotes,
 } from "./operations.server";
 
@@ -41,6 +42,13 @@ export const setDelivered = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ altaId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     await markDelivered(data.altaId);
+    return { ok: true as const };
+  });
+
+export const markWaOpenedFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ altaId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    await markWaOpened(data.altaId);
     return { ok: true as const };
   });
 
