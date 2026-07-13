@@ -156,7 +156,7 @@ wizard_checkout_started (cliente) → redirect Stripe Checkout (hosted)
 | 3 | `wizard_place_confirmed` | Cliente | Confirma ficha del local | `restaurant_name`, `gmb_place_id`, `enrichment_status` |
 | 4 | `wizard_order_reviewed` | Cliente | Continúa desde resumen | `restaurant_name`, `domain`, `domain_is_custom`, `powerup_customer`, `checkout_scenario` |
 | 5a | `wizard_contact_submitted` | Cliente | Envía contacto (antes de servidor) | Igual que resumen |
-| 5b | `alta_lead_saved` | **Servidor** | INSERT en Neon OK | `alta_id`, `restaurant_name`, `has_gmb`, `domain_is_custom`, `powerup_customer` |
+| 5b | `alta_lead_saved` | **Servidor** | INSERT en Neon OK | `alta_id`, `restaurant_name`, `has_gmb`, `domain_is_custom`, `domain_initial_choice`, `domain_downgraded`, `powerup_customer` |
 | 6a | `wizard_checkout_started` | Cliente | Redirect a Stripe | `alta_id`, + props de resumen |
 | 6b | `checkout_session_created` | **Servidor** | Sesión Stripe creada | `alta_id`, `restaurant_name`, `powerup_customer`, `stripe_session_id` |
 | 7 | `alta_fulfilled` | **Servidor** | Webhook `checkout.session.completed` | `alta_id`, `stripe_session_id`, `stripe_customer_id`, `stripe_subscription_id`, `source: "stripe_webhook"` |
@@ -173,7 +173,9 @@ wizard_checkout_started (cliente) → redirect Stripe Checkout (hosted)
 
 | Evento | Cuándo | Propiedades |
 |--------|--------|-------------|
-| `wizard_domain_type_chosen` | Elige subdominio gratis vs custom | `domain_type`: `free_subdomain` \| `custom_domain`, `powerup_customer`, `restaurant_name` |
+| `wizard_domain_type_chosen` | Elige subdominio gratis vs custom; corrección al skip con `is_correction: true` | `domain_type`, `powerup_customer`, `restaurant_name`, `is_correction?`, `correction_reason?` |
+| `wizard_domain_downgraded_to_free` | Eligió custom y sigue con subdominio gratis (skip Namecheap) | `reason`: `namecheap_degraded` \| `skip_link`, `prefetch_status`, `candidate_domain`, `restaurant_name`, `powerup_customer` |
+| `wizard_restaurant_located` | Puente funnel: búsqueda GMB o alta manual | `method`: `search` \| `manual`, `restaurant_name` |
 | `wizard_custom_domain_selected` | Confirma dominio concreto | `domain`, `domain_price`, `restaurant_name` |
 | `wizard_domain_checked_manually` | Búsqueda manual Namecheap | `domain`, `result`: `available` \| `unavailable`, `price` o `alternatives_count` |
 
@@ -260,7 +262,7 @@ Usar esta plantilla al trabajar con otra IA sobre **qué medir y por qué**.
 | Fuente | Uso |
 |--------|-----|
 | PostHog | Funnels, trends, replay, cohortes |
-| Neon `altas` | Conteo ground truth, revenue fields, warehouse join |
+| Neon `altas` | Conteo ground truth, revenue fields, `domain_initial_choice` / `domain_downgraded` (intención brecha vs resultado lead), warehouse join |
 | Slack | Alertas operativas inmediatas (lead vs pagado) |
 | Stripe Dashboard | Pagos fallidos, disputes (no instrumentado en PH aún) |
 
@@ -286,7 +288,7 @@ Baseline: [Dashboard 792288](https://eu.posthog.com/project/212884/dashboard/792
 | 2 | **CVR end-to-end** | Formula / trend | `alta_fulfilled` / `wizard_started` × 100 |
 | 3 | **Leads vs pagos** | Trends (semanal) | `alta_lead_saved` vs `alta_fulfilled` |
 | 4 | **Checkout completion** | Formula | `alta_fulfilled` / `checkout_session_created` |
-| 5 | **Mix dominio** | Breakdown | `wizard_domain_type_chosen` por `domain_type` |
+| 5 | **Mix dominio** | Breakdown | `wizard_domain_type_chosen` por persona (última elección, `argMax`); downgrades vía `wizard_domain_downgraded_to_free` |
 | 6 | **Upgrade PowerUp** | Breakdown | `alta_lead_saved` por `powerup_customer` |
 | 7 | **Errores GMB** | Trend | `wizard_restaurant_search_error` |
 | 8 | **Recuperación Stripe** | Trend | `wizard_checkout_cancelled_recovered` |

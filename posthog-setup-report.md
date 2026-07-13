@@ -20,7 +20,9 @@ The wizard has completed a deep integration of PostHog into the PowerUp website 
 | `wizard_restaurant_selected` | User picked a restaurant from Google Maps results. | `src/components/asistente/AsistenteAlta.tsx` |
 | `wizard_restaurant_entered_manually` | User entered restaurant name manually. | `src/components/asistente/AsistenteAlta.tsx` |
 | `wizard_place_confirmed` | User confirmed restaurant info is correct. | `src/components/asistente/AsistenteAlta.tsx` |
-| `wizard_domain_type_chosen` | User picked free subdomain or custom domain. | `src/components/asistente/AsistenteAlta.tsx` |
+| `wizard_domain_type_chosen` | User picked free subdomain or custom domain (also on skip correction with `is_correction: true`). | `src/components/asistente/AsistenteAlta.tsx` |
+| `wizard_domain_downgraded_to_free` | User chose custom domain then continued with free subdomain (Namecheap skip). | `src/lib/wizard-domain-analytics.ts` |
+| `wizard_restaurant_located` | Bridge event for funnel: search or manual restaurant entry. | `src/components/asistente/AsistenteAlta.tsx` |
 | `wizard_custom_domain_selected` | User selected a specific available custom domain. | `src/components/asistente/AsistenteAlta.tsx` |
 | `wizard_order_reviewed` | User reviewed the order summary and continued. | `src/components/asistente/AsistenteAlta.tsx` |
 | `wizard_contact_submitted` | User submitted name and WhatsApp number. | `src/components/asistente/AsistenteAlta.tsx` |

@@ -2,14 +2,32 @@ export const LOW_SAMPLE_THRESHOLD = 20;
 
 export const NARRATIVE_FUNNEL_STEPS = [
   { event: "wizard_started", label: "Entró al asistente" },
-  { event: "wizard_search_performed", label: "Buscó su restaurante" },
+  { event: "wizard_restaurant_located", label: "Localizó su restaurante" },
   { event: "wizard_place_confirmed", label: "Confirmó su restaurante" },
-  { event: "wizard_domain_type_chosen", label: "Eligió dominio" },
   { event: "wizard_brecha_viewed", label: "Vio la oferta de upgrade" },
+  { event: "wizard_domain_type_chosen", label: "Eligió dominio" },
   { event: "alta_lead_saved", label: "Dejó su contacto" },
   { event: "checkout_session_created", label: "Llegó al pago" },
-  { event: "alta_fulfilled", label: "Activó su página" },
+  /** Checkout Stripe OK → trial iniciado (con o sin dominio de pago). No implica página ya publicada. */
+  { event: "alta_fulfilled", label: "Comenzó la prueba" },
 ] as const;
+
+/** Eventos que cuentan como «localizó restaurante» en funnel y volumen suelto. */
+export const NARRATIVE_LOCATE_EVENTS = [
+  "wizard_restaurant_located",
+  "wizard_restaurant_selected",
+  "wizard_restaurant_entered_manually",
+] as const;
+
+export function looseVolumeForFunnelStep(
+  event: string,
+  volumes: Record<string, number>,
+): number {
+  if (event === "wizard_restaurant_located") {
+    return Math.max(...NARRATIVE_LOCATE_EVENTS.map((e) => volumes[e] ?? 0));
+  }
+  return volumes[event] ?? 0;
+}
 
 export type NarrativeStep = {
   event: string;

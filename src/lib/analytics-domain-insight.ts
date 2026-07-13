@@ -10,12 +10,30 @@ export function buildDomainPreferenceInsight(params: {
   freeChosen: number;
   paidActivationRate: number | null;
   freeActivationRate: number | null;
+  downgradesTotal?: number;
+  namecheapDegraded?: number;
+  skipLink?: number;
 }): DomainPreferenceInsight {
   const total = params.paidChosen + params.freeChosen;
   if (total < LOW_SAMPLE_THRESHOLD) {
     return {
       tone: "gray",
       message: "Muestra insuficiente para conclusiones",
+    };
+  }
+
+  const downgradesTotal = params.downgradesTotal ?? 0;
+  const namecheapDegraded = params.namecheapDegraded ?? 0;
+  const skipLink = params.skipLink ?? 0;
+  if (
+    params.paidChosen > 0 &&
+    downgradesTotal / params.paidChosen >= 0.3 &&
+    namecheapDegraded >= skipLink &&
+    namecheapDegraded > 0
+  ) {
+    return {
+      tone: "amber",
+      message: "Namecheap está empujando a gratis — revisar API o UX degradada",
     };
   }
 

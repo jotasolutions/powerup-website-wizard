@@ -192,15 +192,15 @@ Mapeo humano → evento (tooltip / modo técnico):
 | Etiqueta | Evento |
 |----------|--------|
 | Entró al asistente | `wizard_started` |
-| Buscó su restaurante | `wizard_search_performed` |
+| Localizó su restaurante | `wizard_restaurant_located` (`method`: search \| manual) |
 | Confirmó su restaurante | `wizard_place_confirmed` (+ `place_origin`) |
-| Eligió dominio | `wizard_domain_type_chosen` |
 | Vio la oferta de upgrade | `wizard_brecha_viewed` |
+| Eligió dominio | `wizard_domain_type_chosen` (última elección por persona en panel) |
 | Dejó su contacto | `alta_lead_saved` |
 | Llegó al pago | `checkout_session_created` |
-| Activó su página | `alta_fulfilled` |
+| Comenzó la prueba | `alta_fulfilled` (checkout Stripe OK; trial iniciado, con o sin dominio de pago) |
 
-Sub-líneas: `place_origin` bajo confirmación; dominio pago vs gratis bajo activación. Nota reconciliación al pie.
+Sub-líneas: `place_origin` bajo confirmación; dominio pago vs gratis bajo inicio de prueba. Nota reconciliación al pie.
 
 ### E. ¿Por qué? (conclusiones)
 
@@ -215,6 +215,8 @@ Toggle sin persistencia: funnels crudos 2.1/2.2, reconciliación 7d/30d, nombres
 | Evento | Cuándo | Propiedades |
 |--------|--------|-------------|
 | `wizard_search_performed` | Al lanzar búsqueda GMB (fetch debounced, al arrancar fetch) | `search_attempt`, `is_first_search`, `query_length` |
+| `wizard_restaurant_located` | Tras búsqueda GMB o alta manual (puente funnel) | `method`: `search` \| `manual`, `restaurant_name` |
+| `wizard_domain_downgraded_to_free` | Skip de dominio de pago → subdominio gratis | `reason`: `namecheap_degraded` \| `skip_link`, `prefetch_status`, `candidate_domain` |
 | `wizard_place_confirmed` | Confirmar restaurante | + `place_origin`: `google` \| `manual` |
 
 **Nota `search_attempt`:** cuenta queries debounced distintas, no reintentos deliberados. Alguien que teclea despacio puede generar varias capturas (`"ric"` → `"ricard"` → `"ricard camarena"`). Para el funnel da igual (PostHog cuenta personas únicas por paso). **No usar `search_attempt` como métrica de frustración sin suavizar.**
@@ -252,13 +254,14 @@ Resumen para el panel de esta spec:
 
 1. **Hero (grid 2 columnas)** — sustituye resumen editorial v2 y fila 1 de métricas semanales.
    - **Registros (Neon):** total del período con delta vs período anterior; desglose dominio de pago (count + €) vs subdominio gratis; mini-tendencia últimas 4 semanas (texto `1 · 2 · 2 · 3` o sparkline SVG si ≥8 semanas de historia).
-   - **¿Qué eligen: gratis o pago? (PostHog):** barra de reparto de `wizard_domain_type_chosen`; mini-cards de conversión elegir→`alta_fulfilled` por tipo (48 h); insight por reglas con n&lt;20 en gris.
+   - **¿Qué eligen: gratis o pago? (PostHog):** barra por **personas** (última elección `argMax`); línea de downgrades `wizard_domain_downgraded_to_free`; mini-cards elegir→`alta_fulfilled` por tipo (48 h); insight por reglas con n&lt;20 en gris.
+   - **Desplegable Neon:** matriz intención→resultado (`domain_initial_choice`, `domain_downgraded` en `altas` al `saveAlta`); motivos de downgrade solo PostHog.
 
 2. **Chart diario** — bajo card Registros, solo en rangos 7/30 días (`paid_at` truncado a día).
 
 3. **¿Funciona?** — CVR contacto→alta (Neon 14 d).
 
-4. **¿Dónde?** — funnel narrado **compacto** (columnas verticales, peor paso ámbar).
+4. **¿Dónde?** — funnel narrado **compacto** (columnas verticales, peor paso ámbar). En **local** (`npm run dev`), el panel arranca con filtro **Todos**; con **Producción** los eventos de prueba (`app_env: development`) no aparecen. El funnel secuencial requiere sesiones post-deploy con `wizard_restaurant_located`; si un paso funnel es 0 pero hay actividad suelta, se muestra `(N sueltos)` bajo la columna.
 
 5. **¿Por qué?** — día 30 en franja horizontal; búsqueda; **¿Cuándo empiezan el alta?** (`wizard_started`, Europe/Madrid); canales UTM; replays. **Eliminado:** tile dominio pago vs gratis (vive en hero).
 

@@ -1,7 +1,8 @@
+import { Clock } from "lucide-react";
 import type { WhenTheyStartData } from "@/lib/analytics-dashboard.functions";
 import { formatEsNumber } from "@/lib/analytics-narrative";
 import { cn } from "@/lib/utils";
-import { TileShell } from "./analytics-ui";
+import { InsightTile } from "./analytics-ui";
 
 const WHEN_SAMPLE_THRESHOLD = 30;
 
@@ -28,22 +29,22 @@ function MiniBars({
   const max = Math.max(...items.map((i) => i.count), 1);
 
   return (
-    <div className="flex items-end gap-2">
+    <div className="mt-2 flex items-end gap-2">
       {items.map((item) => {
         const h = (item.count / max) * 100;
         return (
           <div key={item.key} className="flex flex-1 flex-col items-center gap-1">
-            <span className="text-[10px] tabular-nums text-muted-foreground">
+            <span className="text-[10px] tabular-nums text-panel-muted">
               {item.count > 0 ? formatEsNumber(item.count) : ""}
             </span>
             <div
               className={cn(
                 "w-full max-w-8 rounded-t",
-                lowSample ? "bg-muted" : "bg-brand-gradient",
+                lowSample ? "bg-panel-sunken" : "bg-panel-blue-bg",
               )}
               style={{ height: `${Math.max(h, item.count > 0 ? 12 : 4)}%`, minHeight: 16 }}
             />
-            <span className="text-[10px] text-muted-foreground">{item.label}</span>
+            <span className="text-[10px] text-panel-muted">{item.label}</span>
           </div>
         );
       })}
@@ -69,21 +70,17 @@ export function WhenTheyStartTile({ data }: { data: WhenTheyStartData }) {
   });
 
   return (
-    <TileShell
-      title="¿Cuándo empiezan el alta?"
-      subtitle="Hora local Europe/Madrid · wizard_started"
-      className="lg:col-span-2"
-    >
+    <InsightTile icon={Clock} iconTone="blue" title="¿Cuándo empiezan el alta?">
       {lowSample ? (
-        <p className="text-sm text-muted-foreground">Aún poca muestra para ver patrones (n={data.total}).</p>
+        <>Aún poca muestra para ver patrones (n={data.total}).</>
       ) : (
-        <div className="space-y-6">
+        <>
           <div>
-            <p className="mb-2 text-xs text-muted-foreground">Por día de semana</p>
+            <span className="text-panel-muted">Por día de semana</span>
             <MiniBars items={dowItems} lowSample={false} />
           </div>
-          <div>
-            <p className="mb-2 text-xs text-muted-foreground">Por franja horaria</p>
+          <div className="mt-3">
+            <span className="text-panel-muted">Por franja horaria (Madrid)</span>
             <MiniBars
               items={slotItems.map((s, i) => ({
                 ...s,
@@ -92,11 +89,9 @@ export function WhenTheyStartTile({ data }: { data: WhenTheyStartData }) {
               lowSample={false}
             />
           </div>
-        </div>
+          <p className="mt-2 text-panel-muted">Útil para decidir cuándo enviar recordatorios.</p>
+        </>
       )}
-      <p className="mt-4 text-xs text-muted-foreground">
-        Útil para decidir cuándo enviar recordatorios.
-      </p>
-    </TileShell>
+    </InsightTile>
   );
 }

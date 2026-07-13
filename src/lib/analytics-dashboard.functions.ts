@@ -14,10 +14,12 @@ import {
   queryCheckoutScenarioFunnel,
   queryDomainTypeActivationFunnel,
   queryDomainTypeChosenBreakdown,
+  queryDomainDowngradeStats,
   queryEventTrendWeekly,
   queryFulfilledDomainBreakdown,
   queryFunnel,
   queryNarrativeFunnel,
+  queryNarrativeFunnelStepVolumes,
   queryPlaceOriginBreakdown,
   queryUtmChannelActivation,
   queryWizardStartedTiming,
@@ -30,12 +32,14 @@ import {
 import {
   countNeonPaidInLastDays,
   getDailyRegistrations,
+  getDomainIntentMetrics,
   getLeadToPaidCvr14d,
   getRegistrationsHeroMetrics,
 } from "./analytics-neon.server";
 import { buildDomainPreferenceInsight } from "./analytics-domain-insight";
 import type {
   DailyRegistrationPoint,
+  DomainIntentMetrics,
   DomainPreferenceHeroData,
   RegistrationsHeroData,
   WhenTheyStartData,
@@ -44,6 +48,7 @@ import {
   getCheckoutScenarioInstrumentedSince,
   getInternalAnalyticsPanelSlug,
   getInternalAnalyticsReplayUrl,
+  resolveInternalAnalyticsReplayUrl,
 } from "./env.server";
 import {
   getNeonEnvFilterStatus,
@@ -71,6 +76,7 @@ export type NarrativeFunnelData = {
   fulfilledBreakdown: { domainPaid: number; subdomainFree: number };
   reconciliation: ReconciliationData;
   topCount: number;
+  looseVolumes: Record<string, number>;
 };
 
 export type SummaryData = {
@@ -118,7 +124,8 @@ export type AnalyticsDashboardPayload = {
   meta: {
     rangeDays: number;
     appEnv: DashboardAppEnvFilter;
-    replayUrl: string | null;
+    replayUrl: string;
+    replayIsPlaylist: boolean;
     checkoutScenarioSince: string;
     panelSlug: string;
     neonEnvFilterReady: boolean;
@@ -223,6 +230,12 @@ function buildDomainPreferenceHero(
     paid: { chosen: number; activated: number };
     free: { chosen: number; activated: number };
   },
+  downgrades: {
+    total: number;
+    namecheapDegraded: number;
+    skipLink: number;
+  },
+  neonIntent: DomainIntentMetrics,
 ): DomainPreferenceHeroData {
   const paidRate =
     activation.paid.chosen > 0 ? activation.paid.activated / activation.paid.chosen : null;
@@ -231,6 +244,8 @@ function buildDomainPreferenceHero(
 
   return {
     breakdown,
+    downgrades,
+    neonIntent,
     activation: {
       paid: { ...activation.paid, rate: paidRate },
       free: { ...activation.free, rate: freeRate },
@@ -240,6 +255,9 @@ function buildDomainPreferenceHero(
       freeChosen: breakdown.free,
       paidActivationRate: paidRate,
       freeActivationRate: freeRate,
+      downgradesTotal: downgrades.total,
+      namecheapDegraded: downgrades.namecheapDegraded,
+      skipLink: downgrades.skipLink,
     }),
     sampleN: breakdown.paid + breakdown.free,
   };
@@ -283,7 +301,7 @@ function buildSectionLights(params: {
         params.topCount < LOW_SAMPLE_THRESHOLD ? "gray" : dondeAmber ? "amber" : "green",
       subtitle:
         params.topCount < LOW_SAMPLE_THRESHOLD
-          ? "Sin datos suficientes"
+          ? "pocos datos para sacar conclusiones"
           : dondeAmber
             ? "Un paso concentra la fuga"
             : "Fuga repartida o baja",
@@ -322,6 +340,7 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
 
     const [
       narrativeFunnelRaw,
+      narrativeFunnelStepVolumes,
       placeOrigin,
       fulfilledBreakdown,
       funnelServer,
@@ -338,10 +357,13 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       registrationsHero,
       domainChosenBreakdown,
       domainActivation,
+      domainDowngrades,
+      domainIntentMetrics,
       wizardStartedTiming,
       dailyRegistrations,
     ] = await Promise.all([
       queryNarrativeFunnel({ rangeDays, appEnv }),
+      queryNarrativeFunnelStepVolumes({ rangeDays, appEnv }),
       queryPlaceOriginBreakdown({ rangeDays, appEnv }),
       queryFulfilledDomainBreakdown({ rangeDays, appEnv }),
       queryFunnel({
@@ -355,8 +377,8 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
         steps: [
           "wizard_started",
           "wizard_place_confirmed",
-          "wizard_domain_type_chosen",
           "wizard_brecha_viewed",
+          "wizard_domain_type_chosen",
           "wizard_contact_submitted",
           "wizard_checkout_started",
         ],
@@ -387,6 +409,8 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       wrapNeon(() => getRegistrationsHeroMetrics(neonCtx, rangeDays)),
       queryDomainTypeChosenBreakdown({ rangeDays, appEnv }),
       queryDomainTypeActivationFunnel({ rangeDays, appEnv }),
+      queryDomainDowngradeStats({ rangeDays, appEnv }),
+      wrapNeon(() => getDomainIntentMetrics(neonCtx, rangeDays)),
       queryWizardStartedTiming({ rangeDays, appEnv }),
       rangeDays === 7 || rangeDays === 30
         ? wrapNeon(() => getDailyRegistrations(neonCtx, rangeDays))
@@ -404,6 +428,8 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       ? reconciliation30.data
       : { neon: 0, posthog: 0, delta: 0, comparable: envComparisonComparable };
 
+    const looseVolumes = narrativeFunnelStepVolumes.ok ? narrativeFunnelStepVolumes.data : {};
+
     const narrativeFunnel: TileResult<NarrativeFunnelData> =
       narrativeFunnelRaw.ok && placeOrigin.ok && fulfilledBreakdown.ok
         ? {
@@ -418,6 +444,7 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
               },
               reconciliation: reconciliationForFunnel,
               topCount,
+              looseVolumes,
             },
           }
         : {
@@ -439,12 +466,17 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
     });
 
     const domainPreference: TileResult<DomainPreferenceHeroData> =
-      domainChosenBreakdown.ok && domainActivation.ok
+      domainChosenBreakdown.ok &&
+      domainActivation.ok &&
+      domainDowngrades.ok &&
+      domainIntentMetrics.ok
         ? {
             ok: true,
             data: buildDomainPreferenceHero(
               domainChosenBreakdown.data,
               domainActivation.data,
+              domainDowngrades.data,
+              domainIntentMetrics.data,
             ),
           }
         : {
@@ -452,6 +484,8 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
             error:
               (!domainChosenBreakdown.ok && domainChosenBreakdown.error) ||
               (!domainActivation.ok && domainActivation.error) ||
+              (!domainDowngrades.ok && domainDowngrades.error) ||
+              (!domainIntentMetrics.ok && domainIntentMetrics.error) ||
               "Sin datos de preferencia de dominio",
           };
 
@@ -459,7 +493,8 @@ export const getAnalyticsDashboard = createServerFn({ method: "GET" })
       meta: {
         rangeDays,
         appEnv,
-        replayUrl: getInternalAnalyticsReplayUrl() ?? null,
+        replayUrl: resolveInternalAnalyticsReplayUrl(),
+        replayIsPlaylist: Boolean(getInternalAnalyticsReplayUrl()),
         checkoutScenarioSince: getCheckoutScenarioInstrumentedSince(),
         panelSlug: getInternalAnalyticsPanelSlug(),
         neonEnvFilterReady: neonEnvStatus.columnReady,

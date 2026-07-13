@@ -193,10 +193,21 @@ async function countFreeSubdomainInRange(ctx: NeonPanelQueryContext, from: Date,
   return countPaidInRange(ctx, trialPaidFilter, from, to);
 }
 
+export type RegistrationScenarioRow = {
+  count: number;
+  sumEur: number;
+};
+
 export type RegistrationsHeroData = {
   total: { current: number; previous: number };
   paidDomain: { count: number; sumEur: number };
   freeSubdomain: { count: number };
+  scenarios: {
+    trialFree: RegistrationScenarioRow;
+    customDomain: RegistrationScenarioRow;
+    managementFee: RegistrationScenarioRow;
+    powerUpUpgrade: { count: number };
+  };
   weeklyTrend: number[];
   weeksOfHistory: number;
 };
@@ -209,12 +220,13 @@ export async function getRegistrationsHeroMetrics(
   const periodStart = addDays(now, -rangeDays);
   const prevStart = addDays(periodStart, -rangeDays);
 
-  const [totalCurrent, totalPrevious, paidDomain, freeSubdomain, weeklyTrend, weeksOfHistory] =
+  const [totalCurrent, totalPrevious, paidDomain, freeSubdomain, scenarios, weeklyTrend, weeksOfHistory] =
     await Promise.all([
       countAnyPaidInRange(ctx, periodStart, now),
       countAnyPaidInRange(ctx, prevStart, periodStart),
       countAndSumPaidDomainInRange(ctx, periodStart, now),
       countFreeSubdomainInRange(ctx, periodStart, now),
+      getRegistrationScenarioBreakdown(ctx, periodStart, now),
       getLastWeekRegistrationCounts(ctx, 4),
       getWeeksOfPaidHistory(ctx),
     ]);
@@ -223,8 +235,48 @@ export async function getRegistrationsHeroMetrics(
     total: { current: totalCurrent, previous: totalPrevious },
     paidDomain,
     freeSubdomain: { count: freeSubdomain },
+    scenarios,
     weeklyTrend,
     weeksOfHistory,
+  };
+}
+
+async function getRegistrationScenarioBreakdown(
+  ctx: NeonPanelQueryContext,
+  from: Date,
+  to: Date,
+): Promise<RegistrationsHeroData["scenarios"]> {
+  const where = withNeonAppEnv(
+    ctx.appEnv,
+    ctx.envColumnReady,
+    anyPaidFilter,
+    gte(altas.paidAt, from),
+    lte(altas.paidAt, to),
+  );
+
+  const [row] = await getDb()
+    .select({
+      trialCount: sql<string>`count(*) FILTER (WHERE ${altas.onetimeFeeConcept} IS NULL)`,
+      customCount: sql<string>`count(*) FILTER (WHERE ${altas.onetimeFeeConcept} = 'dominio')`,
+      customSum: sql<string>`COALESCE(SUM(${altas.onetimeFeeAmount}::numeric) FILTER (WHERE ${altas.onetimeFeeConcept} = 'dominio'), 0)`,
+      managementCount: sql<string>`count(*) FILTER (WHERE ${altas.onetimeFeeConcept} = 'gestion')`,
+      managementSum: sql<string>`COALESCE(SUM(${altas.onetimeFeeAmount}::numeric) FILTER (WHERE ${altas.onetimeFeeConcept} = 'gestion'), 0)`,
+      powerUpCount: sql<string>`count(*) FILTER (WHERE ${altas.powerupCustomer} = 'yes')`,
+    })
+    .from(altas)
+    .where(where);
+
+  return {
+    trialFree: { count: Number(row?.trialCount ?? 0), sumEur: 0 },
+    customDomain: {
+      count: Number(row?.customCount ?? 0),
+      sumEur: Number(row?.customSum ?? 0),
+    },
+    managementFee: {
+      count: Number(row?.managementCount ?? 0),
+      sumEur: Number(row?.managementSum ?? 0),
+    },
+    powerUpUpgrade: { count: Number(row?.powerUpCount ?? 0) },
   };
 }
 
@@ -285,4 +337,58 @@ export async function getDailyRegistrations(
     day: String(r.day),
     count: Number(r.count ?? 0),
   }));
+}
+
+export type DomainIntentMetrics = {
+  withIntent: number;
+  intention: { paid: number; free: number };
+  transitions: {
+    paidToPaid: number;
+    paidToFree: number;
+    freeToFree: number;
+    freeToPaid: number;
+  };
+};
+
+/** Leads en rango con intención de dominio (primer clic brecha) vs resultado al guardar. */
+export async function getDomainIntentMetrics(
+  ctx: NeonPanelQueryContext,
+  rangeDays: number,
+): Promise<DomainIntentMetrics> {
+  const now = new Date();
+  const periodStart = addDays(now, -rangeDays);
+  const where = withNeonAppEnv(
+    ctx.appEnv,
+    ctx.envColumnReady,
+    isNotNull(altas.domainInitialChoice),
+    gte(altas.createdAt, periodStart),
+    lte(altas.createdAt, now),
+  );
+
+  const [row] = await getDb()
+    .select({
+      withIntent: count(),
+      intentionPaid: sql<string>`count(*) FILTER (WHERE ${altas.domainInitialChoice} = 'paid')`,
+      intentionFree: sql<string>`count(*) FILTER (WHERE ${altas.domainInitialChoice} = 'free')`,
+      paidToPaid: sql<string>`count(*) FILTER (WHERE ${altas.domainInitialChoice} = 'paid' AND ${altas.domainIsCustom} = true)`,
+      paidToFree: sql<string>`count(*) FILTER (WHERE ${altas.domainDowngraded} = true)`,
+      freeToFree: sql<string>`count(*) FILTER (WHERE ${altas.domainInitialChoice} = 'free' AND ${altas.domainIsCustom} = false)`,
+      freeToPaid: sql<string>`count(*) FILTER (WHERE ${altas.domainInitialChoice} = 'free' AND ${altas.domainIsCustom} = true)`,
+    })
+    .from(altas)
+    .where(where);
+
+  return {
+    withIntent: Number(row?.withIntent ?? 0),
+    intention: {
+      paid: Number(row?.intentionPaid ?? 0),
+      free: Number(row?.intentionFree ?? 0),
+    },
+    transitions: {
+      paidToPaid: Number(row?.paidToPaid ?? 0),
+      paidToFree: Number(row?.paidToFree ?? 0),
+      freeToFree: Number(row?.freeToFree ?? 0),
+      freeToPaid: Number(row?.freeToPaid ?? 0),
+    },
+  };
 }

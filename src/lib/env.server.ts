@@ -194,8 +194,46 @@ export function getInternalAnalyticsPanelSlug(): string {
   return firstEnv("INTERNAL_ANALYTICS_PANEL_SLUG") ?? "m4x8nq2k";
 }
 
+const REPLAY_PLAYLIST_PLACEHOLDER_IDS = new Set([
+  "TU_SHORT_ID",
+  "aBc12XyZ",
+  "XXXXXXXX",
+]);
+
+function isConfiguredReplayPlaylistUrl(url: string): boolean {
+  try {
+    const match = new URL(url).pathname.match(/\/replay\/playlists\/([^/]+)/i);
+    if (!match) return true;
+    const shortId = match[1];
+    if (REPLAY_PLAYLIST_PLACEHOLDER_IDS.has(shortId)) return false;
+    if (/^TU_/i.test(shortId) || /^X+$/i.test(shortId)) return false;
+    return shortId.length >= 4;
+  } catch {
+    return false;
+  }
+}
+
+/** Playlist guardada en PostHog; vacío si no hay URL válida (ignora placeholders de ejemplo). */
 export function getInternalAnalyticsReplayUrl(): string | undefined {
-  return firstEnv("INTERNAL_ANALYTICS_REPLAY_URL");
+  const raw = firstEnv("INTERNAL_ANALYTICS_REPLAY_URL")?.trim();
+  if (!raw || !isConfiguredReplayPlaylistUrl(raw)) return undefined;
+  return raw;
+}
+
+/** Listado general de Session Replay del proyecto (siempre accesible en PostHog EU). */
+export function getInternalAnalyticsReplayListingUrl(): string {
+  const host = getPostHogApiHost().replace(/\/$/, "");
+  const projectId = getPostHogProjectId();
+  return `${host}/project/${projectId}/replay`;
+}
+
+/** Playlist configurada o, si falta, el listado de replays del proyecto. */
+export function resolveInternalAnalyticsReplayUrl(): string {
+  return getInternalAnalyticsReplayUrl() ?? getInternalAnalyticsReplayListingUrl();
+}
+
+export function isInternalAnalyticsReplayPlaylistUrl(url: string): boolean {
+  return /\/replay\/playlists\//i.test(url);
 }
 
 /** Fecha desde la que checkout_scenario/onetime_fee_amount en alta_fulfilled son fiables (deploy 2346dc3). */

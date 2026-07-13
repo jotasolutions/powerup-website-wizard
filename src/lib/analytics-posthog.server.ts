@@ -339,13 +339,147 @@ export async function queryNarrativeFunnel(params: {
   appEnv: DashboardAppEnvFilter;
 }): Promise<PostHogQueryResult<{ steps: Array<{ event: string; count: number }> }>> {
   const events = NARRATIVE_FUNNEL_STEPS.map((s) => s.event);
-  return queryFunnel({
-    steps: [...events],
+  const locateEvents = [
+    "wizard_restaurant_located",
+    "wizard_restaurant_selected",
+    "wizard_restaurant_entered_manually",
+  ]
+    .map((e) => `'${e}'`)
+    .join(", ");
+
+  const hogql = `
+    SELECT
+      countIf(level >= 1) AS step_1,
+      countIf(level >= 2) AS step_2,
+      countIf(level >= 3) AS step_3,
+      countIf(level >= 4) AS step_4,
+      countIf(level >= 5) AS step_5,
+      countIf(level >= 6) AS step_6,
+      countIf(level >= 7) AS step_7,
+      countIf(level >= 8) AS step_8
+    FROM (
+      SELECT
+        person_id,
+        windowFunnel(172800)(
+          toUnixTimestamp(timestamp),
+          event = 'wizard_started',
+          event IN (${locateEvents}),
+          event = 'wizard_place_confirmed',
+          event = 'wizard_brecha_viewed',
+          event = 'wizard_domain_type_chosen',
+          event = 'alta_lead_saved',
+          event = 'checkout_session_created',
+          event = 'alta_fulfilled'
+        ) AS level
+      FROM events
+      WHERE timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        AND person_id IS NOT NULL
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    )
+  `;
+
+  const hogqlResult = await executeHogQLQuery(hogql);
+  if (hogqlResult.ok) {
+    const row = hogqlResult.data.results?.[0] ?? [];
+    const steps = events.map((event, index) => ({
+      event,
+      count: Number(row[index] ?? 0),
+    }));
+    return { ok: true, data: { steps } };
+  }
+
+  const fallbackSteps = events.map((event) =>
+    event === "wizard_restaurant_located" ? "wizard_restaurant_selected" : event,
+  );
+  const fallback = await queryFunnel({
+    steps: fallbackSteps,
     windowValue: 48,
     windowUnit: "hour",
     rangeDays: params.rangeDays,
     appEnv: params.appEnv,
   });
+  if (!fallback.ok) return fallback;
+
+  return {
+    ok: true,
+    data: {
+      steps: events.map((event, index) => ({
+        event,
+        count: fallback.data.steps[index]?.count ?? 0,
+      })),
+    },
+  };
+}
+
+export async function queryNarrativeFunnelStepVolumes(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<Record<string, number>>> {
+  const events = NARRATIVE_FUNNEL_STEPS.map((s) => s.event);
+  const eventList = events.map((e) => `'${e}'`).join(", ");
+  const hogql = `
+    SELECT
+      event,
+      count(DISTINCT person_id) AS cnt
+    FROM events
+    WHERE event IN (${eventList})
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY event
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const eventIdx = columns.findIndex((c) => c === "event");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  const volumes: Record<string, number> = {};
+  for (const event of events) {
+    volumes[event] = 0;
+  }
+  for (const row of result.data.results ?? []) {
+    const event = String(row[eventIdx] ?? "");
+    const cnt = Number(row[countIdx] ?? 0);
+    if (event in volumes) volumes[event] = cnt;
+  }
+
+  return { ok: true, data: volumes };
+}
+
+export async function queryRestaurantStepDiagnostics(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<PostHogQueryResult<Record<string, number>>> {
+  const events = [
+    "wizard_restaurant_located",
+    "wizard_restaurant_selected",
+    "wizard_search_performed",
+    "wizard_restaurant_entered_manually",
+  ];
+  const eventList = events.map((e) => `'${e}'`).join(", ");
+  const hogql = `
+    SELECT event, count(DISTINCT person_id) AS cnt
+    FROM events
+    WHERE event IN (${eventList})
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY event
+  `;
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+  const columns = result.data.columns ?? [];
+  const eventIdx = columns.findIndex((c) => c === "event");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+  const counts: Record<string, number> = {};
+  for (const event of events) counts[event] = 0;
+  for (const row of result.data.results ?? []) {
+    const event = String(row[eventIdx] ?? "");
+    counts[event] = Number(row[countIdx] ?? 0);
+  }
+  return { ok: true, data: counts };
 }
 
 export async function queryPlaceOriginBreakdown(params: {
@@ -531,17 +665,21 @@ export async function queryDomainTypeChosenBreakdown(params: {
   appEnv: DashboardAppEnvFilter;
 }): Promise<PostHogQueryResult<{ paid: number; free: number }>> {
   const hogql = `
-    SELECT
-      if(
-        toString(properties.domain_type) = 'custom_domain',
-        'paid',
-        'free'
-      ) AS kind,
-      count() AS cnt
-    FROM events
-    WHERE event = 'wizard_domain_type_chosen'
-      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
-      ${appEnvHogQLClause(params.appEnv)}
+    WITH final_choice AS (
+      SELECT
+        person_id,
+        argMax(
+          if(toString(properties.domain_type) = 'custom_domain', 'paid', 'free'),
+          timestamp
+        ) AS kind
+      FROM events
+      WHERE event = 'wizard_domain_type_chosen'
+        AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+        ${appEnvHogQLClause(params.appEnv)}
+      GROUP BY person_id
+    )
+    SELECT kind, count() AS cnt
+    FROM final_choice
     GROUP BY kind
   `;
 
@@ -577,11 +715,11 @@ export async function queryDomainTypeActivationFunnel(params: {
     WITH choices AS (
       SELECT
         person_id,
-        argMin(
+        argMax(
           if(toString(properties.domain_type) = 'custom_domain', 'paid', 'free'),
           timestamp
         ) AS kind,
-        min(timestamp) AS chosen_at
+        max(timestamp) AS chosen_at
       FROM events
       WHERE event = 'wizard_domain_type_chosen'
         AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
@@ -632,6 +770,53 @@ export async function queryDomainTypeActivationFunnel(params: {
   }
 
   return { ok: true, data: { paid, free } };
+}
+
+export async function queryDomainDowngradeStats(params: {
+  rangeDays: number;
+  appEnv: DashboardAppEnvFilter;
+}): Promise<
+  PostHogQueryResult<{
+    total: number;
+    namecheapDegraded: number;
+    skipLink: number;
+  }>
+> {
+  const hogql = `
+    SELECT
+      toString(properties.reason) AS reason,
+      count() AS cnt
+    FROM events
+    WHERE event = 'wizard_domain_downgraded_to_free'
+      AND timestamp >= now() - INTERVAL ${params.rangeDays} DAY
+      ${appEnvHogQLClause(params.appEnv)}
+    GROUP BY reason
+  `;
+
+  const result = await executeHogQLQuery(hogql);
+  if (!result.ok) return result;
+
+  const columns = result.data.columns ?? [];
+  const reasonIdx = columns.findIndex((c) => c === "reason");
+  const countIdx = columns.findIndex((c) => c === "cnt" || c === "count()");
+
+  let namecheapDegraded = 0;
+  let skipLink = 0;
+  for (const row of result.data.results ?? []) {
+    const reason = String(row[reasonIdx] ?? "");
+    const cnt = Number(row[countIdx] ?? 0);
+    if (reason === "namecheap_degraded") namecheapDegraded = cnt;
+    else if (reason === "skip_link") skipLink = cnt;
+  }
+
+  return {
+    ok: true,
+    data: {
+      total: namecheapDegraded + skipLink,
+      namecheapDegraded,
+      skipLink,
+    },
+  };
 }
 
 const MADRID_TZ = "Europe/Madrid";
