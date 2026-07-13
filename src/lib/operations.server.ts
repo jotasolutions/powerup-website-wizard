@@ -324,6 +324,7 @@ export type OpsCsvRow = {
   tipoDominio: string;
   dominio: string;
   importe: string;
+  desenlace: string;
   estado: string;
   dominioRegistrado: string;
   entregada: string;
@@ -358,8 +359,9 @@ export async function getOperationsCsvRows(
     const amount =
       row.onetimeFeeAmount != null ? Number(row.onetimeFeeAmount).toFixed(2) : "0";
     const desenlace = deriveHistoricDesenlace(row, now);
+    const desenlaceText = desenlaceLabel(desenlace);
     const deliveryColumn = deriveDeliveryColumn(row);
-    let estado = desenlaceLabel(desenlace);
+    let estado = desenlaceText;
     if (deliveryColumn === "domain_pending") estado = "dominio por registrar";
     else if (deliveryColumn === "building") estado = "construyendo";
     else if (deliveryColumn === "delivered") estado = "entregada";
@@ -373,6 +375,7 @@ export async function getOperationsCsvRows(
       tipoDominio: row.domainIsCustom ? "custom" : "subdominio",
       dominio: row.domain ?? "",
       importe: amount,
+      desenlace: desenlaceText,
       estado,
       dominioRegistrado: row.domainRegisteredAt?.toISOString().slice(0, 10) ?? "",
       entregada: row.deliveredAt?.toISOString().slice(0, 10) ?? "",
