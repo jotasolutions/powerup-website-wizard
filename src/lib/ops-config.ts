@@ -23,3 +23,17 @@ export const OPS_DELIVERED_PREVIEW = 10;
 
 export const MS_HOUR = 60 * 60 * 1000;
 export const MS_DAY = 24 * MS_HOUR;
+
+/** Tooltip v1 (atributo title) del chip «dejó el pago». */
+export function opsChipPaymentLeftTitle(): string {
+  return `Llegó a la pantalla de pago de Stripe y la abandonó hace más de ${OPS_CHECKOUT_ABANDON_HOURS} h — lead caliente, mensaje de cierre`;
+}
+
+/** Tooltip v1 (atributo title) del chip «parado N días». */
+export const OPS_CHIP_STALLED_TITLE =
+  "Dejó su contacto pero nunca llegó al pago — retomar conversación, no cerrar venta";
+
+/** Leyenda bajo el grupo «Para reenganchar» (umbrales interpolados). */
+export function opsReengageGroupLegend(): string {
+  return `dejó el pago = llegó a la pantalla de pago y la abandonó (>${OPS_CHECKOUT_ABANDON_HOURS} h) · parado = nunca llegó al pago (>${OPS_STALLED_DAYS} días)`;
+}

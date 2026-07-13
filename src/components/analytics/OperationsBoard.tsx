@@ -15,24 +15,40 @@ import type {
   OpsLeadRow,
 } from "@/lib/operations.server";
 import type { OpsHistoricDesenlace, OpsLeadEstado } from "@/lib/ops-derive";
+import {
+  opsChipPaymentLeftTitle,
+  OPS_CHIP_STALLED_TITLE,
+  opsReengageGroupLegend,
+} from "@/lib/ops-config";
 import type { DashboardAppEnvFilter } from "@/lib/analytics-posthog.server";
 import { OpsWhatsAppButton } from "./OpsWhatsAppButton";
 import { cn } from "@/lib/utils";
 
+const CHIP_WARN =
+  "rounded-full bg-panel-amber-bg px-2 py-0.5 text-[11px] text-panel-amber-text";
+
+function PaymentLeftChip() {
+  return (
+    <span title={opsChipPaymentLeftTitle()} className={CHIP_WARN}>
+      dejó el pago
+    </span>
+  );
+}
+
+function StalledChip({ days }: { days: number }) {
+  return (
+    <span title={OPS_CHIP_STALLED_TITLE} className={cn(CHIP_WARN, "tabular-nums")}>
+      parado {days} días
+    </span>
+  );
+}
+
 function EstadoChip({ estado }: { estado: OpsLeadEstado }) {
   switch (estado.kind) {
     case "payment_left":
-      return (
-        <span className="rounded-full bg-panel-amber-bg px-2 py-0.5 text-[11px] text-panel-amber-text">
-          dejó el pago
-        </span>
-      );
+      return <PaymentLeftChip />;
     case "stalled":
-      return (
-        <span className="rounded-full bg-panel-amber-bg px-2 py-0.5 text-[11px] tabular-nums text-panel-amber-text">
-          parado {estado.days} días
-        </span>
-      );
+      return <StalledChip days={estado.days} />;
     case "new":
       return (
         <span className="rounded-full bg-panel-blue-bg px-2 py-0.5 text-[11px] text-panel-blue-text">
@@ -59,11 +75,7 @@ function DesenlaceChip({ desenlace }: { desenlace: OpsHistoricDesenlace }) {
         </span>
       );
     case "payment_left":
-      return (
-        <span className="rounded-full bg-panel-amber-bg px-2 py-0.5 text-[11px] text-panel-amber-text">
-          dejó el pago
-        </span>
-      );
+      return <PaymentLeftChip />;
     case "cooled":
       return (
         <span className="rounded-full bg-panel-sunken px-2 py-0.5 text-[11px] text-panel-muted">
@@ -71,11 +83,7 @@ function DesenlaceChip({ desenlace }: { desenlace: OpsHistoricDesenlace }) {
         </span>
       );
     case "stalled":
-      return (
-        <span className="rounded-full bg-panel-amber-bg px-2 py-0.5 text-[11px] tabular-nums text-panel-amber-text">
-          parado {desenlace.days} días
-        </span>
-      );
+      return <StalledChip days={desenlace.days} />;
     case "in_progress":
       return (
         <span className="rounded-full bg-panel-sunken px-2 py-0.5 text-[11px] text-panel-muted">
@@ -569,15 +577,13 @@ export function OperationsBoard({ appEnv }: { appEnv: DashboardAppEnvFilter }) {
                 aún no han activado · últimos {leads.activeWindowDays} días
               </span>
             </div>
-            {leads.olderCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => setHistoricExpanded(true)}
-                className="text-[11px] text-panel-muted hover:text-panel-secondary"
-              >
-                ver anteriores ({leads.olderCount})
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setHistoricExpanded(true)}
+              className="text-[11px] text-panel-muted hover:text-panel-secondary"
+            >
+              ver histórico ({historic.length})
+            </button>
           </div>
 
           <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg bg-panel-sunken px-3.5 py-2 text-[13px]">
@@ -595,7 +601,7 @@ export function OperationsBoard({ appEnv }: { appEnv: DashboardAppEnvFilter }) {
             <span className="text-panel-secondary">{resultLine.inProgress} recientes en curso</span>
           </div>
 
-          <div className="mb-2 flex items-center gap-2">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
             <span
               className="size-1.5 shrink-0 rounded-full bg-panel-amber-dot"
               aria-hidden
@@ -605,6 +611,7 @@ export function OperationsBoard({ appEnv }: { appEnv: DashboardAppEnvFilter }) {
               dejaron el pago o llevan días parados — este es el trabajo
             </span>
           </div>
+          <p className="mb-2 text-[11px] text-panel-muted">{opsReengageGroupLegend()}</p>
           <div className="mb-3.5 overflow-hidden rounded-xl border-[0.5px] border-[#EAC58A] bg-white">
             <LeadTableHeader />
             {leads.reengage.map((row) => (
