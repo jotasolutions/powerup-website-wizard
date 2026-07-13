@@ -174,6 +174,63 @@ export function hasSlackConfig(): boolean {
   return Boolean(getSlackWebhookUrl());
 }
 
+export function getBrevoApiKey(): string | undefined {
+  return firstEnv("BREVO_API_KEY");
+}
+
+export function hasBrevoConfig(): boolean {
+  return Boolean(getBrevoApiKey());
+}
+
+export function getBrevoSenderEmail(): string {
+  return firstEnv("BREVO_SENDER_EMAIL") ?? "info@powerup.menu";
+}
+
+export function getBrevoSenderName(): string {
+  return firstEnv("BREVO_SENDER_NAME") ?? "PowerUp Menu";
+}
+
+export function getBrevoTemplateCheckoutPaid(): number | undefined {
+  return parseBrevoTemplateId(firstEnv("BREVO_TEMPLATE_CHECKOUT_PAID"));
+}
+
+export function getBrevoTemplateCheckoutTrial(): number | undefined {
+  return parseBrevoTemplateId(firstEnv("BREVO_TEMPLATE_CHECKOUT_TRIAL"));
+}
+
+export function getBrevoTemplateCheckoutUpgrade(): number | undefined {
+  return parseBrevoTemplateId(firstEnv("BREVO_TEMPLATE_CHECKOUT_UPGRADE"));
+}
+
+export function getBrevoTemplateSiteDelivered(): number | undefined {
+  return parseBrevoTemplateId(firstEnv("BREVO_TEMPLATE_SITE_DELIVERED"));
+}
+
+function parseBrevoTemplateId(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** En local: redirige todos los correos transaccionales a esta bandeja. */
+export function getBrevoDevOverrideEmail(): string | undefined {
+  return firstEnv("BREVO_DEV_OVERRIDE_EMAIL");
+}
+
+export function getBrevoWebhookToken(): string | undefined {
+  return firstEnv("BREVO_WEBHOOK_TOKEN");
+}
+
+export function hasBrevoWebhookConfig(): boolean {
+  return Boolean(getBrevoWebhookToken());
+}
+
+export function getSupportWhatsappE164(): string {
+  const raw = firstEnv("SUPPORT_WHATSAPP", "VITE_SUPPORT_WHATSAPP");
+  if (raw) return raw.replace(/\D/g, "");
+  return "34651332202";
+}
+
 export function getPostHogPersonalApiKey(): string | undefined {
   return firstEnv("POSTHOG_PERSONAL_API_KEY");
 }

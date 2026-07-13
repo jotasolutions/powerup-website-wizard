@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { dispatchAltaPaidNotification } from "./alta-slack.server";
+import { dispatchCheckoutConfirmationEmail } from "./alta-email.server";
 import { fulfillAltaFromCheckout, getAltaById } from "./db-server";
 import { resolveCheckoutScenario } from "./checkout-scenario";
 import {
@@ -64,7 +65,10 @@ async function handleCheckoutSessionCompleted(
   });
 
   if (result.outcome === "fulfilled") {
+    const amountPaidEur =
+      session.amount_total != null ? session.amount_total / 100 : null;
     dispatchAltaPaidNotification(altaId, "stripe_webhook");
+    dispatchCheckoutConfirmationEmail(altaId, amountPaidEur);
     const properties: Record<string, unknown> = {
       alta_id: altaId,
       stripe_session_id: session.id,

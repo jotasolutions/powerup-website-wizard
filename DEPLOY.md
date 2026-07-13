@@ -20,6 +20,7 @@ La configuración del entorno desplegado (env vars, integraciones, redeploy) es 
 | **App URL** | `APP_URL` | Sí (prod) | Dominio público HTTPS para success/cancel de Stripe |
 | **Analytics entorno** | `VITE_VERCEL_ENV=production` | Sí (prod) | Scope **solo Production** en el host; redeploy tras configurar (ver pasos one-time) |
 | **Slack** | `SLACK_WEBHOOK_URL` | No | Lead + alta pagada; fire-and-forget |
+| **Brevo** | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (`info@powerup.menu`), `BREVO_TEMPLATE_*` (opcional), `BREVO_WEBHOOK_TOKEN` | No | Confirmación checkout + entrega web; webhook rebotes → Slack; `BREVO_DEV_OVERRIDE_EMAIL` para pruebas locales |
 | **Evolution** | `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE_NAME`, `EVOLUTION_API_KEY` | No | Validación WhatsApp; en local se puede usar móvil `000000000` |
 | **Namecheap** | `NAMECHEAP_API_USER`, `NAMECHEAP_API_KEY`, `NAMECHEAP_CLIENT_IP`, … | No* | O `MOCK_DOMAIN_CHECK=true` para pruebas sin API |
 | **Panel** | `INTERNAL_ANALYTICS_PANEL_SLUG`, `INTERNAL_ANALYTICS_REPLAY_URL`, `ANALYTICS_CHECKOUT_SCENARIO_SINCE` | No | Defaults en código; replay es enlace manual a playlist PostHog |
@@ -105,6 +106,8 @@ Sin esto, el cliente PostHog cae a `app_env: development` y contamina funnels si
 
 Registrar en Stripe Dashboard el endpoint `https://<dominio>/api/stripe/webhook` con el mismo `STRIPE_WEBHOOK_SECRET` del host. Hoy el handler procesa `checkout.session.completed` (fulfillment de alta).
 
+**Detalle del flujo, metadata `alta_id`, modos local/mock y smoke test:** [stripe-checkout-fulfillment.md](stripe-checkout-fulfillment.md).
+
 **Webhooks de suscripción (largo plazo, opcional para el panel):** `customer.subscription.updated` / `deleted` no son necesarios para el tile «Suscripciones al día 30» — ese tile consulta `stripe.subscriptions.retrieve()` bajo demanda con los `stripe_subscription_id` ya guardados en Neon (caché ~4 h). Sí conviene instrumentarlos más adelante si queréis reaccionar a cancelaciones en tiempo real (alertas, win-back), no solo contarlas en revisión semanal.
 
 ### 7. Verificación post-deploy (deploy owner)
@@ -119,5 +122,6 @@ Registrar en Stripe Dashboard el endpoint `https://<dominio>/api/stripe/webhook`
 ## Referencias
 
 - Desarrollo local: `AGENTS.md`
+- Stripe checkout / webhook / `alta_id`: `stripe-checkout-fulfillment.md`
 - Spec métricas / panel: `posthog-dashboard-diagnostico-alta.md`
 - Analytics handoff: `handoff-wizard-analytics.md`, `handoff-wizard-analytics-addendum.md`

@@ -33,10 +33,28 @@ describe("buildAltaPayload", () => {
         domain: "test.es",
         domain_is_custom: true,
         domain_price: 14.9,
+        domain_initial_choice: "paid",
       },
       { contact_name: "A", whatsapp: "+34 611111111" },
     );
     expect(payload.onetime_fee_concept).toBe("dominio");
     expect(payload.onetime_fee_amount).toBe(14.9);
+    expect(payload.domain_downgraded).toBe(false);
+  });
+
+  it("marca downgrade cuando eligió pago y acabó en gratis", () => {
+    const payload = buildAltaPayload(
+      {
+        ...initialAlta,
+        restaurant_name: "Test",
+        domain: "test.powerup.menu",
+        domain_is_custom: false,
+        domain_initial_choice: "paid",
+        wants_custom_domain: false,
+      },
+      { contact_name: "A", whatsapp: "+34 611111111" },
+    );
+    expect(payload.domain_downgraded).toBe(true);
+    expect(payload.domain_initial_choice).toBe("paid");
   });
 });

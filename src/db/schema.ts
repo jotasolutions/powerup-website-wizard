@@ -14,6 +14,7 @@ import type { PlaceProfile } from "@/lib/place-profile.types";
 export const altaStatusEnum = pgEnum("alta_status", ["pending_payment", "paid"]);
 export const altaFeeConceptEnum = pgEnum("alta_fee_concept", ["gestion", "dominio"]);
 export const powerupCustomerEnum = pgEnum("powerup_customer_status", ["unknown", "yes", "no"]);
+export const domainInitialChoiceEnum = pgEnum("domain_initial_choice", ["free", "paid"]);
 
 export const altas = pgTable("altas", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -26,6 +27,10 @@ export const altas = pgTable("altas", {
   wantsCustomDomain: boolean("wants_custom_domain").notNull().default(false),
   domain: text("domain"),
   domainIsCustom: boolean("domain_is_custom").notNull().default(false),
+  /** Primer clic en brecha (gratis vs pago). Null en filas históricas. */
+  domainInitialChoice: domainInitialChoiceEnum("domain_initial_choice"),
+  /** Eligió pago al inicio y terminó con subdominio gratis (sin fee gestión). */
+  domainDowngraded: boolean("domain_downgraded").notNull().default(false),
   powerupCustomer: powerupCustomerEnum("powerup_customer").notNull().default("unknown"),
   onetimeFeeConcept: altaFeeConceptEnum("onetime_fee_concept"),
   onetimeFeeAmount: numeric("onetime_fee_amount", { precision: 10, scale: 2 }),
@@ -46,6 +51,12 @@ export const altas = pgTable("altas", {
   checkoutStartedAt: timestamp("checkout_started_at", { withTimezone: true }),
   /** Email capturado en Stripe Checkout al pagar. */
   customerEmail: text("customer_email"),
+  /** Confirmación post-checkout enviada al cliente (Brevo). */
+  checkoutEmailSentAt: timestamp("checkout_email_sent_at", { withTimezone: true }),
+  /** Aviso de web publicada enviado al cliente (Brevo). */
+  deliveryEmailSentAt: timestamp("delivery_email_sent_at", { withTimezone: true }),
+  /** Email de Stripe rebotó / inválido (webhook Brevo). */
+  customerEmailBouncedAt: timestamp("customer_email_bounced_at", { withTimezone: true }),
   /** @deprecated v3: el board deriva de timestamps; no escribir en mutaciones nuevas. */
   opsStatus: text("ops_status"),
   domainRegisteredAt: timestamp("domain_registered_at", { withTimezone: true }),

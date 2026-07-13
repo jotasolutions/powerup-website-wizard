@@ -16,6 +16,7 @@ import { Route as DevEnrichmentPreviewRouteImport } from './routes/dev.enrichmen
 import { Route as DevDomainPreviewRouteImport } from './routes/dev.domain-preview'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as ApiOpsWaOpenedRouteImport } from './routes/api.ops.wa-opened'
+import { Route as ApiBrevoWebhookRouteImport } from './routes/api.brevo.webhook'
 
 const ConfirmacionRoute = ConfirmacionRouteImport.update({
   id: '/confirmacion',
@@ -52,6 +53,11 @@ const ApiOpsWaOpenedRoute = ApiOpsWaOpenedRouteImport.update({
   path: '/api/ops/wa-opened',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBrevoWebhookRoute = ApiBrevoWebhookRouteImport.update({
+  id: '/api/brevo/webhook',
+  path: '/api/brevo/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
   '/panel/$slug': typeof PanelSlugRoute
+  '/api/brevo/webhook': typeof ApiBrevoWebhookRoute
   '/api/ops/wa-opened': typeof ApiOpsWaOpenedRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
   '/panel/$slug': typeof PanelSlugRoute
+  '/api/brevo/webhook': typeof ApiBrevoWebhookRoute
   '/api/ops/wa-opened': typeof ApiOpsWaOpenedRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/dev/domain-preview': typeof DevDomainPreviewRoute
   '/dev/enrichment-preview': typeof DevEnrichmentPreviewRoute
   '/panel/$slug': typeof PanelSlugRoute
+  '/api/brevo/webhook': typeof ApiBrevoWebhookRoute
   '/api/ops/wa-opened': typeof ApiOpsWaOpenedRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
     | '/panel/$slug'
+    | '/api/brevo/webhook'
     | '/api/ops/wa-opened'
     | '/api/stripe/webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
     | '/panel/$slug'
+    | '/api/brevo/webhook'
     | '/api/ops/wa-opened'
     | '/api/stripe/webhook'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/dev/domain-preview'
     | '/dev/enrichment-preview'
     | '/panel/$slug'
+    | '/api/brevo/webhook'
     | '/api/ops/wa-opened'
     | '/api/stripe/webhook'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   DevDomainPreviewRoute: typeof DevDomainPreviewRoute
   DevEnrichmentPreviewRoute: typeof DevEnrichmentPreviewRoute
   PanelSlugRoute: typeof PanelSlugRoute
+  ApiBrevoWebhookRoute: typeof ApiBrevoWebhookRoute
   ApiOpsWaOpenedRoute: typeof ApiOpsWaOpenedRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
 }
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOpsWaOpenedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/brevo/webhook': {
+      id: '/api/brevo/webhook'
+      path: '/api/brevo/webhook'
+      fullPath: '/api/brevo/webhook'
+      preLoaderRoute: typeof ApiBrevoWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   DevDomainPreviewRoute: DevDomainPreviewRoute,
   DevEnrichmentPreviewRoute: DevEnrichmentPreviewRoute,
   PanelSlugRoute: PanelSlugRoute,
+  ApiBrevoWebhookRoute: ApiBrevoWebhookRoute,
   ApiOpsWaOpenedRoute: ApiOpsWaOpenedRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
 }

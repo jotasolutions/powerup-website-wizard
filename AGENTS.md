@@ -32,6 +32,8 @@ Plantilla completa: `.env.example`. Resumen de las más usadas en local:
 | `APP_URL` | Opcional en local; el cliente envía `window.location.origin` |
 | `GOOGLE_PLACES_API_KEY` | Búsqueda de restaurantes |
 | `POSTHOG_PERSONAL_API_KEY` | Panel interno `/panel/{slug}` — HogQL (solo si usas el panel en local) |
+| `BREVO_API_KEY` | Correos transaccionales al cliente (confirmación checkout + entrega) |
+| `BREVO_SENDER_EMAIL` | Remitente (default `info@powerup.menu`) |
 
 El cliente PostHog usa `api_host: /ingest`. En local, Nitro `routeRules` hace proxy hacia PostHog EU. En deploy, `vercel.json` reescribe `/ingest/*` (ver [DEPLOY.md](DEPLOY.md)).
 
@@ -54,6 +56,8 @@ El cliente PostHog usa `api_host: /ingest`. En local, Nitro `routeRules` hace pr
 2. Server fn: `src/lib/alta.functions.ts` → `saveAlta` + `createCheckout` (UI); fulfillment `paid` vía webhook `POST /api/stripe/webhook`
 3. Confirmación: `src/routes/confirmacion.tsx` → `finalizeCheckout` (UX idempotente; autoridad en webhook)
 
+Checklist Stripe producción (`alta_id`, webhook, PostHog): **[stripe-checkout-fulfillment.md](stripe-checkout-fulfillment.md)**.
+
 ### Notificaciones Slack
 
 Con `SLACK_WEBHOOK_URL` en `.env` local, el servidor envía dos mensajes por alta completa:
@@ -62,6 +66,26 @@ Con `SLACK_WEBHOOK_URL` en `.env` local, el servidor envía dos mensajes por alt
 2. **Alta pagada** — al confirmar el pago (`stripe_webhook`, `finalize_checkout` o `mock_checkout` en local sin Stripe).
 
 Si el usuario abandona antes de pagar, solo llega el mensaje de lead. Los avisos son fire-and-forget.
+
+### Correos transaccionales al cliente (Brevo)
+
+Con `BREVO_API_KEY` en `.env` local, el servidor envía correos al email capturado en Stripe Checkout (`customer_email`):
+
+1. **Confirmación post-checkout** — al marcar `paid` (`stripe_webhook`, `finalize_checkout` o `mock_checkout`). Variantes:
+   - **Pago recibido** — si hubo cobro hoy (dominio, fee gestión).
+   - **Prueba activa** — subdominio gratis + 30 días de prueba.
+   - **Upgrade carta** — cliente PowerUp sin trial.
+2. **Web publicada** — al marcar entregada en el panel ops (`setDelivered`).
+
+Remitente por defecto: `info@powerup.menu`. WhatsApp de soporte: `SUPPORT_WHATSAPP` / `34651332202`.
+
+Sin `BREVO_API_KEY`, los correos se omiten (degradación silenciosa, como Slack). En local sin email Stripe (mock checkout), usa `BREVO_DEV_OVERRIDE_EMAIL` para probar. Si faltan IDs de plantilla Brevo, el servidor envía HTML generado en código.
+
+Plantillas en Brevo: `npm run brevo:seed-templates` (ver [docs/brevo-transactional-templates/README.md](docs/brevo-transactional-templates/README.md)).
+
+En `/confirmacion` se muestra el email de Stripe y enlaces WhatsApp con contexto completo del alta (referencia, dominio, contacto). Webhook rebotes: `POST /api/brevo/webhook?token=…` (`BREVO_WEBHOOK_TOKEN`) → Slack + `customer_email_bounced_at`.
+
+Idempotencia: columnas `checkout_email_sent_at` y `delivery_email_sent_at` en `altas`.
 
 ### Prefetch de dominio (etapa 6)
 

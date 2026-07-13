@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<body style="margin:0;padding:0;background:#f6f7f9;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;padding:28px 24px;">
+          <tr><td style="font-size:16px;line-height:1.6;">
+            <p style="margin:0 0 16px;">Hola {{ params.contactName }},</p>
+            <p style="margin:0 0 16px;">Ya hemos empezado a crear la página web de <strong>{{ params.restaurantName }}</strong> para tu carta PowerUp.</p>
+            <p style="margin:20px 0 8px;font-weight:600;">Qué ocurrirá ahora</p>
+            <ul style="margin:0 0 16px;padding-left:20px;line-height:1.6;">
+              <li style="margin-bottom:8px;">{{ params.domainNextStep }}</li>
+              <li style="margin-bottom:8px;">Te enviaremos otro correo en cuanto esté lista para que puedas verla.</li>
+            </ul>
+            <p style="margin:0 0 16px;">Mientras tanto, si quieres añadir fotos, horarios, la carta o cualquier otra información, solo tienes que enviárnosla por WhatsApp:<br><a href="{{ params.supportWhatsAppLink }}">Escribir por WhatsApp</a></p>
+            <p style="margin:0;">Nos encargamos del resto.</p>
+            <p style="margin:24px 0 0;">Un saludo,<br><strong>Equipo PowerUp Menu</strong></p>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

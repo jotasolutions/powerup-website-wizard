@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<body style="margin:0;padding:0;background:#f6f7f9;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;padding:28px 24px;">
+          <tr><td style="font-size:16px;line-height:1.6;">
+            <p style="margin:0 0 16px;">Hola {{ params.contactName }},</p>
+            <p style="margin:0 0 16px;">¡Ya está lista!</p>
+            <p style="margin:0 0 16px;">La nueva página web de <strong>{{ params.restaurantName }}</strong> ya está publicada:</p>
+            <p style="margin:0 0 16px;"><a href="{{ params.pageUrl }}">{{ params.pageUrl }}</a></p>
+            <p style="margin:0 0 16px;">Échale un vistazo con tranquilidad.</p>
+            <p style="margin:0 0 16px;">Si quieres cambiar cualquier texto, foto o detalle, escríbenos por WhatsApp y lo actualizamos:<br><a href="{{ params.supportWhatsAppLink }}">Escribir por WhatsApp</a></p>
+            <p style="margin:20px 0 8px;font-weight:600;">Un último paso</p>
+            <p style="margin:0 0 16px;">Añade esta web a tu ficha de Google Business y a tus redes sociales para que tus clientes puedan encontrarte más fácilmente.</p>
+            <p style="margin:16px 0 0;">{{ params.trialLine }}</p>
+            <p style="margin:16px 0 0;">Gracias por confiar en PowerUp Menu.</p>
+            <p style="margin:24px 0 0;">Un saludo,<br><strong>Equipo PowerUp Menu</strong></p>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

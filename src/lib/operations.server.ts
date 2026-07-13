@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
+import { dispatchSiteDeliveredEmail } from "./alta-email.server";
 import type { DashboardAppEnvFilter } from "./analytics-posthog.server";
 import { withNeonAppEnv } from "./neon-env-filter.server";
 import {
@@ -401,6 +402,8 @@ export async function markDelivered(altaId: string) {
     .update(altas)
     .set({ deliveredAt: now })
     .where(eq(altas.id, altaId));
+
+  dispatchSiteDeliveredEmail(altaId);
 }
 
 /** Primer click en WhatsApp desde el panel; idempotente (COALESCE). */

@@ -74,6 +74,7 @@ function altaRowToCheckoutState(alta: AltaRow): AltaState {
     domain: alta.domain ?? "",
     domain_is_custom: alta.domainIsCustom,
     domain_price: alta.onetimeFeeConcept === "dominio" ? onetimeFeeAmount : null,
+    domain_initial_choice: alta.domainInitialChoice,
     contact_name: alta.contactName,
     whatsapp: alta.whatsapp,
   };
@@ -195,6 +196,62 @@ export function dispatchAltaPaidNotification(
         event: "slack_notify_paid_failed",
         alta_id: altaId,
         source,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  });
+}
+
+export function buildEmailBouncedSlackPayload(
+  alta: AltaRow,
+  details: { brevoEvent: string; reason: string | null; messageId: string | null },
+): SlackMessagePayload {
+  const lines = [
+    "*Email rebotó — contactar por WhatsApp*",
+    "",
+    `*Email Stripe:* ${alta.customerEmail || "—"}`,
+    `*Evento Brevo:* ${details.brevoEvent}`,
+    details.reason ? `*Motivo:* ${details.reason}` : null,
+    details.messageId ? `*Message ID:* \`${details.messageId}\`` : null,
+    "",
+    ...buildCommonFields(alta),
+    "",
+    "_El cliente no recibirá correos. Usad el WhatsApp del alta para ayudarle._",
+  ].filter((line): line is string => line != null);
+
+  return {
+    text: `Email rebotó — ${alta.restaurantName} (${alta.contactName})`,
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: lines.join("\n") },
+      },
+    ],
+  };
+}
+
+export async function notifyEmailBounced(
+  altaId: string,
+  details: { brevoEvent: string; reason: string | null; messageId: string | null },
+): Promise<void> {
+  const alta = await getAltaById(altaId);
+  if (!alta) {
+    console.error(JSON.stringify({ event: "slack_notify_bounce_no_alta", alta_id: altaId }));
+    return;
+  }
+
+  await sendSlackMessage(buildEmailBouncedSlackPayload(alta, details));
+}
+
+export function dispatchEmailBouncedNotification(
+  altaId: string,
+  details: { brevoEvent: string; reason: string | null; messageId: string | null },
+): void {
+  void notifyEmailBounced(altaId, details).catch((error) => {
+    console.error(
+      JSON.stringify({
+        event: "slack_notify_bounce_failed",
+        alta_id: altaId,
         error: error instanceof Error ? error.message : String(error),
       }),
     );

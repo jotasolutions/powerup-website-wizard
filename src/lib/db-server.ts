@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 import { getServerAppEnv } from "./posthog-server";
@@ -12,6 +12,8 @@ export type AltaInsertPayload = {
   wants_custom_domain: boolean;
   domain: string;
   domain_is_custom: boolean;
+  domain_initial_choice: "free" | "paid" | null;
+  domain_downgraded: boolean;
   powerup_customer: "unknown" | "yes" | "no";
   onetime_fee_concept: "gestion" | "dominio" | null;
   onetime_fee_amount: number | null;
@@ -65,6 +67,8 @@ export async function insertAlta(payload: AltaInsertPayload): Promise<string> {
       wantsCustomDomain: payload.wants_custom_domain,
       domain: payload.domain,
       domainIsCustom: payload.domain_is_custom,
+      domainInitialChoice: payload.domain_initial_choice,
+      domainDowngraded: payload.domain_downgraded,
       powerupCustomer: payload.powerup_customer,
       onetimeFeeConcept: payload.onetime_fee_concept,
       onetimeFeeAmount:
@@ -180,4 +184,52 @@ export async function markCheckoutStarted(altaId: string, stripeSessionId: strin
       checkoutStartedAt: new Date(),
     })
     .where(and(eq(altas.id, altaId), eq(altas.status, "pending_payment")));
+}
+
+/** Marca envío de confirmación post-checkout; idempotente (solo la primera vez). */
+export async function claimCheckoutEmailSend(altaId: string): Promise<boolean> {
+  const updated = await getDb()
+    .update(altas)
+    .set({ checkoutEmailSentAt: new Date() })
+    .where(and(eq(altas.id, altaId), isNull(altas.checkoutEmailSentAt)))
+    .returning({ id: altas.id });
+
+  return updated.length > 0;
+}
+
+/** Marca envío de aviso de entrega; idempotente (solo la primera vez). */
+export async function claimDeliveryEmailSend(altaId: string): Promise<boolean> {
+  const updated = await getDb()
+    .update(altas)
+    .set({ deliveryEmailSentAt: new Date() })
+    .where(and(eq(altas.id, altaId), isNull(altas.deliveryEmailSentAt)))
+    .returning({ id: altas.id });
+
+  return updated.length > 0;
+}
+
+/** Último alta pagado con ese email (para rebotes Brevo). */
+export async function findLatestPaidAltaByCustomerEmail(email: string) {
+  const normalized = email.trim();
+  if (!normalized) return null;
+
+  const [row] = await getDb()
+    .select()
+    .from(altas)
+    .where(and(eq(altas.status, "paid"), eq(altas.customerEmail, normalized)))
+    .orderBy(desc(altas.paidAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/** Marca rebote de email; idempotente. */
+export async function markCustomerEmailBounced(altaId: string): Promise<boolean> {
+  const updated = await getDb()
+    .update(altas)
+    .set({ customerEmailBouncedAt: new Date() })
+    .where(and(eq(altas.id, altaId), isNull(altas.customerEmailBouncedAt)))
+    .returning({ id: altas.id });
+
+  return updated.length > 0;
 }

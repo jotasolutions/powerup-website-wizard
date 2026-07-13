@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import { dispatchAltaLeadNotification, dispatchAltaPaidNotification } from "./alta-slack.server";
+import { dispatchCheckoutConfirmationEmail } from "./alta-email.server";
 import { captureServerEvent } from "./posthog-server";
 import {
   createAltaCheckoutSession,
@@ -189,6 +190,8 @@ const AltaInput = z
     wants_custom_domain: z.boolean(),
     domain: z.string().min(1),
     domain_is_custom: z.boolean(),
+    domain_initial_choice: z.enum(["free", "paid"]).nullable(),
+    domain_downgraded: z.boolean(),
     powerup_customer: z.enum(["unknown", "yes", "no"]),
     onetime_fee_concept: z.enum(["gestion", "dominio"]).nullable(),
     onetime_fee_amount: z.number().nullable(),
@@ -212,6 +215,8 @@ function toInsertPayload(
     wants_custom_domain: data.wants_custom_domain,
     domain: data.domain,
     domain_is_custom: data.domain_is_custom,
+    domain_initial_choice: data.domain_initial_choice,
+    domain_downgraded: data.domain_downgraded,
     powerup_customer: powerupCustomer,
     onetime_fee_concept: data.onetime_fee_concept,
     onetime_fee_amount: data.onetime_fee_amount,
@@ -239,6 +244,7 @@ export const startCheckout = createServerFn({ method: "POST" })
       const result = await markAltaPaidMock(altaId);
       if (result.outcome === "fulfilled") {
         dispatchAltaPaidNotification(altaId, "mock_checkout");
+        dispatchCheckoutConfirmationEmail(altaId);
       }
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: altaId, checkout_url: null as string | null, mock: true };
@@ -277,6 +283,8 @@ export const saveAlta = createServerFn({ method: "POST" })
         restaurant_name: data.restaurant_name,
         has_gmb: data.gmb_place_id != null,
         domain_is_custom: data.domain_is_custom,
+        domain_initial_choice: data.domain_initial_choice,
+        domain_downgraded: data.domain_downgraded,
         powerup_customer: powerupCustomer,
       },
     });
@@ -310,6 +318,7 @@ export const createCheckout = createServerFn({ method: "POST" })
       const result = await markAltaPaidMock(data.alta_id);
       if (result.outcome === "fulfilled") {
         dispatchAltaPaidNotification(data.alta_id, "mock_checkout");
+        dispatchCheckoutConfirmationEmail(data.alta_id);
       }
       void FEE_GESTION_WEB_PROPIA_EUR;
       return { alta_id: data.alta_id, checkout_url: null as string | null, mock: true };
@@ -389,7 +398,10 @@ export const finalizeCheckout = createServerFn({ method: "POST" })
     }
 
     if (result.outcome === "fulfilled") {
+      const amountPaidEur =
+        session.amount_total != null ? session.amount_total / 100 : null;
       dispatchAltaPaidNotification(data.alta_id, "finalize_checkout");
+      dispatchCheckoutConfirmationEmail(data.alta_id, amountPaidEur);
     }
 
     return {
@@ -408,7 +420,15 @@ export const getAltaSummary = createServerFn({ method: "POST" })
     if (!alta) return null;
 
     return {
+      alta_id: alta.id,
       powerup_customer: alta.powerupCustomer,
       restaurant_name: alta.restaurantName,
+      contact_name: alta.contactName,
+      restaurant_address: alta.restaurantAddress,
+      whatsapp: alta.whatsapp,
+      domain: alta.domain,
+      customer_email: alta.customerEmail,
+      checkout_email_sent: alta.checkoutEmailSentAt != null,
+      customer_email_bounced: alta.customerEmailBouncedAt != null,
     };
   });

@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "brevo:seed-templates": "node scripts/seed-brevo-templates.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

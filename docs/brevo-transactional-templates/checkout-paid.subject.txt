@@ -1,0 +1,1 @@
+Hemos recibido tu pago. Ya estamos creando la web de {{ params.restaurantName }}.

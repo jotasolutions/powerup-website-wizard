@@ -1,5 +1,6 @@
 import type { PlaceProfile } from "@/lib/place-profile.types";
 import type { PowerUpCustomerStatus } from "@/lib/powerup-customer";
+import type { DomainInitialChoice } from "@/lib/domain-intent";
 
 export type GmbResult = {
   name: string;
@@ -32,6 +33,8 @@ export type AltaState = {
   domain: string;
   domain_is_custom: boolean;
   domain_price: number | null; // precio final al cliente cuando es personalizado
+  /** Primer clic en brecha; no se borra en skip de dominio. */
+  domain_initial_choice: DomainInitialChoice | null;
 
   // Paso 5
   contact_name: string;
@@ -51,6 +54,7 @@ export const initialAlta: AltaState = {
   domain: "",
   domain_is_custom: false,
   domain_price: null,
+  domain_initial_choice: null,
   contact_name: "",
   whatsapp: "+34 ",
 };
