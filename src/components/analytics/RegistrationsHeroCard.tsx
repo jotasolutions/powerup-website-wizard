@@ -65,7 +65,7 @@ export function RegistrationsHeroCard({
           </p>
           <p className="flex items-center gap-2 tabular-nums text-muted-foreground">
             <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm bg-muted-foreground/40" />
-            Con subdominio gratis · {formatEsNumber(data.freeSubdomain.count)} · 0 €
+            Con subdominio gratis · {formatEsNumber(data.freeSubdomain.count)}
           </p>
         </div>
 
