@@ -129,7 +129,6 @@ export type OpsBoardV3Data = {
   leads: {
     reengage: OpsLeadRow[];
     recent: OpsLeadRow[];
-    olderCount: number;
     activeWindowDays: number;
   };
   historic: OpsHistoricLeadRow[];
@@ -234,7 +233,6 @@ export async function getOperationsBoard(
   const recent: OpsLeadRow[] = [];
   const historic: OpsHistoricLeadRow[] = [];
 
-  let olderCount = 0;
   let resultTotal = 0;
   let resultActivated = 0;
   let resultReengage = 0;
@@ -244,10 +242,6 @@ export async function getOperationsBoard(
 
   for (const row of rows) {
     historic.push(toHistoricRow(row, now));
-
-    if (row.createdAt < new Date(now.getTime() - OPS_LEADS_ACTIVE_DAYS * MS_DAY)) {
-      olderCount += 1;
-    }
 
     if (row.createdAt >= resultSince) {
       resultTotal += 1;
@@ -308,7 +302,6 @@ export async function getOperationsBoard(
     leads: {
       reengage,
       recent,
-      olderCount,
       activeWindowDays: OPS_LEADS_ACTIVE_DAYS,
     },
     historic,
