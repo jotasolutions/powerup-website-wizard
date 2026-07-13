@@ -27,7 +27,7 @@ export function OpsWhatsAppButton({ altaId, href, className }: OpsWhatsAppButton
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border border-panel-green-border bg-panel-green-bg px-2.5 py-0.5 text-xs font-medium text-panel-green-text",
+        "inline-flex items-center gap-1 rounded-md border border-[#A9DCC9] bg-panel-green-bg px-2.5 py-0.5 text-xs font-medium text-panel-green-text",
         className,
       )}
     >
