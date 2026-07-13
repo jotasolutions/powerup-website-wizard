@@ -1,207 +1,325 @@
-import { desc, eq, gte, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index.server";
 import { altas } from "@/db/schema";
 import type { DashboardAppEnvFilter } from "./analytics-posthog.server";
 import { withNeonAppEnv } from "./neon-env-filter.server";
+import {
+  MS_DAY,
+  OPS_DELIVERED_PREVIEW,
+  OPS_DOMAIN_OVERDUE_DAYS,
+  OPS_LEADS_ACTIVE_DAYS,
+  OPS_RESULT_LINE_DAYS,
+} from "./ops-config";
+import {
+  deriveDeliveryColumn,
+  deriveHistoricDesenlace,
+  deriveLeadEstado,
+  deriveLeadGroup,
+  isInLeadsActiveWindow,
+  isPendingLead,
+  type OpsHistoricDesenlace,
+  type OpsLeadEstado,
+  type OpsLeadGroupId,
+} from "./ops-derive";
 
-const MS_DAY = 24 * 60 * 60 * 1000;
-const MS_HOUR = 60 * 60 * 1000;
-
-export type OpsColumnId =
-  | "contact_left"
-  | "payment_abandoned"
-  | "domain_pending"
-  | "configuring"
-  | "delivered";
-
-export type OpsAltaCard = {
-  id: string;
-  restaurantName: string;
-  contactName: string;
-  whatsapp: string;
-  whatsappHref: string;
-  domain: string | null;
-  domainLabel: string;
-  amountEur: number | null;
-  daysInColumn: number;
-  staleWarning: boolean;
-  opsNotes: string | null;
-  columnSince: string;
-  createdAt: string;
-  paidAt: string | null;
-};
-
-export type OpsBoardColumn = {
-  id: OpsColumnId;
-  title: string;
-  description: string;
-  accent?: "amber";
-  cards: OpsAltaCard[];
-  total: number;
-};
-
-export type OpsBoardData = {
-  columns: OpsBoardColumn[];
-  rangeDays: number;
-};
+type AltaRow = typeof altas.$inferSelect;
 
 function daysBetween(from: Date, to: Date): number {
   return Math.max(0, Math.floor((to.getTime() - from.getTime()) / MS_DAY));
 }
 
-function normalizeWhatsAppHref(whatsapp: string): string {
+export function normalizeWhatsAppHref(whatsapp: string): string {
   const digits = whatsapp.replace(/\D/g, "");
   if (!digits) return "#";
   const withCountry = digits.startsWith("34") ? digits : `34${digits}`;
   return `https://wa.me/${withCountry}`;
 }
 
-function deriveColumn(row: typeof altas.$inferSelect, now: Date): OpsColumnId | null {
-  if (row.deliveredAt) {
-    return "delivered";
+function formatShortDate(date: Date): string {
+  return date.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+}
+
+function formatAgeLabel(from: Date, now: Date): string {
+  const hours = Math.floor((now.getTime() - from.getTime()) / (60 * 60 * 1000));
+  if (hours < 24) {
+    if (hours < 1) return "hace un momento";
+    return hours === 1 ? "hace 1 h" : `hace ${hours} h`;
   }
+  const days = daysBetween(from, now);
+  if (days === 1) return "ayer";
+  if (days < 14) return `${days} días`;
+  return formatShortDate(from);
+}
 
-  if (row.status === "paid") {
-    if (row.domainIsCustom && !row.domainRegisteredAt) {
-      return "domain_pending";
-    }
-    return "configuring";
+function domainLabel(row: AltaRow): string {
+  if (row.domainIsCustom) {
+    return row.domain ?? "dominio custom";
   }
+  return "subdominio";
+}
 
-  if (row.status === "pending_payment") {
-    const ageDays = daysBetween(row.createdAt, now);
-    const checkoutAgeHours = row.checkoutStartedAt
-      ? (now.getTime() - row.checkoutStartedAt.getTime()) / MS_HOUR
-      : null;
-
-    const abandoned =
-      ageDays > 14 || (checkoutAgeHours != null && checkoutAgeHours > 48);
-
-    if (abandoned) {
-      return "payment_abandoned";
-    }
-
-    if (ageDays < 14) {
-      return "contact_left";
-    }
+function amountEur(row: AltaRow): number | null {
+  if (row.onetimeFeeAmount != null && Number(row.onetimeFeeAmount) > 0) {
+    return Number(row.onetimeFeeAmount);
   }
-
   return null;
 }
 
-function columnSinceDate(row: typeof altas.$inferSelect, column: OpsColumnId): Date {
+function domainChoiceLabel(row: AltaRow): string {
+  const base = domainLabel(row);
+  const amount = amountEur(row);
+  if (amount != null) {
+    return `${base} · ${amount.toLocaleString("es-ES")} €`;
+  }
+  return base;
+}
+
+export type OpsDeliveryCard = {
+  id: string;
+  restaurantName: string;
+  contactName: string;
+  whatsappHref: string;
+  domainLabel: string;
+  amountEur: number | null;
+  daysInColumn: number;
+  staleWarning: boolean;
+  opsNotes: string | null;
+  stampLabel: string;
+  paidAt: string | null;
+  deliveredAt: string | null;
+  siteUrl: string | null;
+  deliveryDays: number | null;
+};
+
+export type OpsLeadRow = {
+  id: string;
+  restaurantName: string;
+  contactName: string;
+  whatsappHref: string;
+  createdAt: string;
+  ageLabel: string;
+  domainChoiceLabel: string;
+  estado: OpsLeadEstado | null;
+  opsNotes: string | null;
+  group: OpsLeadGroupId;
+};
+
+export type OpsHistoricLeadRow = {
+  id: string;
+  restaurantName: string;
+  contactName: string;
+  whatsappHref: string;
+  createdAt: string;
+  ageLabel: string;
+  domainChoiceLabel: string;
+  desenlace: OpsHistoricDesenlace;
+  opsNotes: string | null;
+  showContactActions: boolean;
+};
+
+export type OpsBoardV3Data = {
+  delivery: {
+    domainPending: OpsDeliveryCard[];
+    building: OpsDeliveryCard[];
+    delivered: OpsDeliveryCard[];
+    deliveredTotal: number;
+    domainPendingOverdue: number;
+    deliveredPreviewLimit: number;
+  };
+  leads: {
+    reengage: OpsLeadRow[];
+    recent: OpsLeadRow[];
+    olderCount: number;
+    activeWindowDays: number;
+  };
+  historic: OpsHistoricLeadRow[];
+  resultLine: {
+    windowDays: number;
+    totalLeads: number;
+    activated: number;
+    reengage: number;
+    inProgress: number;
+  };
+};
+
+function deliverySince(row: AltaRow, column: "domain_pending" | "building" | "delivered"): Date {
   switch (column) {
     case "delivered":
-      return row.deliveredAt ?? row.createdAt;
-    case "configuring":
-      return row.domainRegisteredAt ?? row.paidAt ?? row.createdAt;
+      return row.deliveredAt ?? row.paidAt ?? row.createdAt;
     case "domain_pending":
       return row.paidAt ?? row.createdAt;
-    case "payment_abandoned":
-      return row.checkoutStartedAt ?? row.createdAt;
-    case "contact_left":
+    case "building":
     default:
-      return row.createdAt;
+      return row.domainRegisteredAt ?? row.paidAt ?? row.createdAt;
   }
 }
 
-function toCard(row: typeof altas.$inferSelect, column: OpsColumnId, now: Date): OpsAltaCard {
-  const since = columnSinceDate(row, column);
+function toDeliveryCard(
+  row: AltaRow,
+  column: "domain_pending" | "building" | "delivered",
+  now: Date,
+): OpsDeliveryCard {
+  const since = deliverySince(row, column);
   const daysInColumn = daysBetween(since, now);
-  const amount =
-    row.onetimeFeeAmount != null && Number(row.onetimeFeeAmount) > 0
-      ? Number(row.onetimeFeeAmount)
-      : null;
+  const paidAt = row.paidAt;
+  const stamp =
+    column === "building" && paidAt
+      ? `Activó el ${formatShortDate(paidAt)}`
+      : paidAt
+        ? `Pagó el ${formatShortDate(paidAt)}`
+        : "";
 
   return {
     id: row.id,
     restaurantName: row.restaurantName,
     contactName: row.contactName,
-    whatsapp: row.whatsapp,
     whatsappHref: normalizeWhatsAppHref(row.whatsapp),
-    domain: row.domain,
-    domainLabel: row.domainIsCustom ? (row.domain ?? "dominio custom") : "subdominio",
-    amountEur: amount,
+    domainLabel: domainLabel(row),
+    amountEur: amountEur(row),
     daysInColumn,
-    staleWarning: column === "domain_pending" && daysInColumn > 3,
+    staleWarning: column === "domain_pending" && daysInColumn > OPS_DOMAIN_OVERDUE_DAYS,
     opsNotes: row.opsNotes,
-    columnSince: since.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-    paidAt: row.paidAt?.toISOString() ?? null,
+    stampLabel: stamp,
+    paidAt: paidAt?.toISOString() ?? null,
+    deliveredAt: row.deliveredAt?.toISOString() ?? null,
+    siteUrl: row.domain ? `https://${row.domain}` : null,
+    deliveryDays:
+      row.deliveredAt && paidAt ? daysBetween(paidAt, row.deliveredAt) : null,
   };
 }
 
-const COLUMN_DEFS: Array<{
-  id: OpsColumnId;
-  title: string;
-  description: string;
-  accent?: "amber";
-}> = [
-  {
-    id: "contact_left",
-    title: "Contacto dejado",
-    description: "Sin checkout o en curso · <14 días",
-  },
-  {
-    id: "payment_abandoned",
-    title: "Abandonó en el pago",
-    description: ">48 h en checkout o >14 días",
-    accent: "amber",
-  },
-  {
-    id: "domain_pending",
-    title: "Pagado — dominio por registrar",
-    description: "Dominio custom pendiente de alta",
-  },
-  {
-    id: "configuring",
-    title: "Configurando",
-    description: "Pagado · montaje en curso",
-  },
-  {
-    id: "delivered",
-    title: "Entregada",
-    description: "Página publicada",
-  },
-];
+function toLeadRow(row: AltaRow, group: OpsLeadGroupId, now: Date): OpsLeadRow {
+  return {
+    id: row.id,
+    restaurantName: row.restaurantName,
+    contactName: row.contactName,
+    whatsappHref: normalizeWhatsAppHref(row.whatsapp),
+    createdAt: row.createdAt.toISOString(),
+    ageLabel: formatAgeLabel(row.createdAt, now),
+    domainChoiceLabel: domainChoiceLabel(row),
+    estado: deriveLeadEstado(row, now),
+    opsNotes: row.opsNotes,
+    group,
+  };
+}
+
+function toHistoricRow(row: AltaRow, now: Date): OpsHistoricLeadRow {
+  const desenlace = deriveHistoricDesenlace(row, now);
+  return {
+    id: row.id,
+    restaurantName: row.restaurantName,
+    contactName: row.contactName,
+    whatsappHref: normalizeWhatsAppHref(row.whatsapp),
+    createdAt: row.createdAt.toISOString(),
+    ageLabel: formatShortDate(row.createdAt),
+    domainChoiceLabel: domainChoiceLabel(row),
+    desenlace,
+    opsNotes: row.opsNotes,
+    showContactActions: isPendingLead(row),
+  };
+}
 
 export async function getOperationsBoard(
-  rangeDays: number,
   appEnv: DashboardAppEnvFilter,
   envColumnReady: boolean,
-): Promise<OpsBoardData> {
+): Promise<OpsBoardV3Data> {
   const now = new Date();
-  const since = new Date(now.getTime() - rangeDays * MS_DAY);
-
-  const where = withNeonAppEnv(appEnv, envColumnReady, gte(altas.createdAt, since));
+  const where = withNeonAppEnv(appEnv, envColumnReady);
   const rows = await getDb().select().from(altas).where(where).orderBy(desc(altas.createdAt));
 
-  const filtered = rows.filter((row) => row.createdAt >= since);
+  const domainPending: OpsDeliveryCard[] = [];
+  const building: OpsDeliveryCard[] = [];
+  const delivered: OpsDeliveryCard[] = [];
+  const reengage: OpsLeadRow[] = [];
+  const recent: OpsLeadRow[] = [];
+  const historic: OpsHistoricLeadRow[] = [];
 
-  const buckets = new Map<OpsColumnId, OpsAltaCard[]>();
-  for (const def of COLUMN_DEFS) {
-    buckets.set(def.id, []);
+  let olderCount = 0;
+  let resultTotal = 0;
+  let resultActivated = 0;
+  let resultReengage = 0;
+  let resultInProgress = 0;
+
+  const resultSince = new Date(now.getTime() - OPS_RESULT_LINE_DAYS * MS_DAY);
+
+  for (const row of rows) {
+    historic.push(toHistoricRow(row, now));
+
+    if (row.createdAt < new Date(now.getTime() - OPS_LEADS_ACTIVE_DAYS * MS_DAY)) {
+      olderCount += 1;
+    }
+
+    if (row.createdAt >= resultSince) {
+      resultTotal += 1;
+      if (row.status === "paid") {
+        resultActivated += 1;
+      } else if (isPendingLead(row)) {
+        const group = deriveLeadGroup(row, now);
+        if (group === "reengage") resultReengage += 1;
+        else if (group === "recent") resultInProgress += 1;
+      }
+    }
+
+    const deliveryColumn = deriveDeliveryColumn(row);
+    if (deliveryColumn === "domain_pending") {
+      domainPending.push(toDeliveryCard(row, "domain_pending", now));
+    } else if (deliveryColumn === "building") {
+      building.push(toDeliveryCard(row, "building", now));
+    } else if (deliveryColumn === "delivered") {
+      delivered.push(toDeliveryCard(row, "delivered", now));
+    }
+
+    if (isPendingLead(row) && isInLeadsActiveWindow(row, now)) {
+      const group = deriveLeadGroup(row, now);
+      if (group === "reengage") {
+        reengage.push(toLeadRow(row, "reengage", now));
+      } else if (group === "recent") {
+        recent.push(toLeadRow(row, "recent", now));
+      }
+    }
   }
 
-  for (const row of filtered) {
-    const column = deriveColumn(row, now);
-    if (!column) continue;
-    buckets.get(column)?.push(toCard(row, column, now));
-  }
+  const sortByRecent = <T extends { createdAt?: string; daysInColumn?: number }>(
+    a: T,
+    b: T,
+    key: "createdAt" | "daysInColumn" = "createdAt",
+  ) => {
+    if (key === "daysInColumn") {
+      return (b.daysInColumn ?? 0) - (a.daysInColumn ?? 0);
+    }
+    return new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime();
+  };
 
-  const sortByRecent = (a: OpsAltaCard, b: OpsAltaCard) =>
-    new Date(b.columnSince).getTime() - new Date(a.columnSince).getTime();
+  domainPending.sort((a, b) => sortByRecent(a, b, "daysInColumn"));
+  building.sort((a, b) => sortByRecent(a, b, "daysInColumn"));
+  delivered.sort((a, b) => sortByRecent(a, b, "createdAt"));
+  reengage.sort((a, b) => sortByRecent(a, b));
+  recent.sort((a, b) => sortByRecent(a, b));
 
-  const columns: OpsBoardColumn[] = COLUMN_DEFS.map((def) => {
-    const all = (buckets.get(def.id) ?? []).sort(sortByRecent);
-    return {
-      ...def,
-      cards: all,
-      total: all.length,
-    };
-  });
-
-  return { columns, rangeDays };
+  return {
+    delivery: {
+      domainPending,
+      building,
+      delivered,
+      deliveredTotal: delivered.length,
+      domainPendingOverdue: domainPending.filter((c) => c.staleWarning).length,
+      deliveredPreviewLimit: OPS_DELIVERED_PREVIEW,
+    },
+    leads: {
+      reengage,
+      recent,
+      olderCount,
+      activeWindowDays: OPS_LEADS_ACTIVE_DAYS,
+    },
+    historic,
+    resultLine: {
+      windowDays: OPS_RESULT_LINE_DAYS,
+      totalLeads: resultTotal,
+      activated: resultActivated,
+      reengage: resultReengage,
+      inProgress: resultInProgress,
+    },
+  };
 }
 
 export type OpsCsvRow = {
@@ -218,46 +336,55 @@ export type OpsCsvRow = {
   entregada: string;
 };
 
+function desenlaceLabel(desenlace: OpsHistoricDesenlace): string {
+  switch (desenlace.kind) {
+    case "activated":
+      return "activó";
+    case "payment_left":
+      return "dejó el pago";
+    case "cooled":
+      return "se enfrió";
+    case "stalled":
+      return `parado ${desenlace.days} días`;
+    case "in_progress":
+      return "en curso";
+    default:
+      return "—";
+  }
+}
+
 export async function getOperationsCsvRows(
-  rangeDays: number,
   appEnv: DashboardAppEnvFilter,
   envColumnReady: boolean,
 ): Promise<OpsCsvRow[]> {
   const now = new Date();
-  const since = new Date(now.getTime() - rangeDays * MS_DAY);
-
-  const where = withNeonAppEnv(appEnv, envColumnReady, gte(altas.createdAt, since));
+  const where = withNeonAppEnv(appEnv, envColumnReady);
   const rows = await getDb().select().from(altas).where(where).orderBy(desc(altas.createdAt));
 
-  const COLUMN_LABELS: Record<OpsColumnId, string> = {
-    contact_left: "Contacto dejado",
-    payment_abandoned: "Abandonó en el pago",
-    domain_pending: "Pagado — dominio por registrar",
-    configuring: "Configurando",
-    delivered: "Entregada",
-  };
+  return rows.map((row) => {
+    const amount =
+      row.onetimeFeeAmount != null ? Number(row.onetimeFeeAmount).toFixed(2) : "0";
+    const desenlace = deriveHistoricDesenlace(row, now);
+    const deliveryColumn = deriveDeliveryColumn(row);
+    let estado = desenlaceLabel(desenlace);
+    if (deliveryColumn === "domain_pending") estado = "dominio por registrar";
+    else if (deliveryColumn === "building") estado = "construyendo";
+    else if (deliveryColumn === "delivered") estado = "entregada";
 
-  return rows
-    .filter((row) => row.createdAt >= since)
-    .map((row) => {
-      const column = deriveColumn(row, now);
-      const amount =
-        row.onetimeFeeAmount != null ? Number(row.onetimeFeeAmount).toFixed(2) : "0";
-
-      return {
-        fecha: row.createdAt.toISOString().slice(0, 10),
-        restaurante: row.restaurantName,
-        contacto: row.contactName,
-        telefono: row.whatsapp,
-        email: row.customerEmail ?? "",
-        tipoDominio: row.domainIsCustom ? "custom" : "subdominio",
-        dominio: row.domain ?? "",
-        importe: amount,
-        estado: column ? COLUMN_LABELS[column] : "—",
-        dominioRegistrado: row.domainRegisteredAt?.toISOString().slice(0, 10) ?? "",
-        entregada: row.deliveredAt?.toISOString().slice(0, 10) ?? "",
-      };
-    });
+    return {
+      fecha: row.createdAt.toISOString().slice(0, 10),
+      restaurante: row.restaurantName,
+      contacto: row.contactName,
+      telefono: row.whatsapp,
+      email: row.customerEmail ?? "",
+      tipoDominio: row.domainIsCustom ? "custom" : "subdominio",
+      dominio: row.domain ?? "",
+      importe: amount,
+      estado,
+      dominioRegistrado: row.domainRegisteredAt?.toISOString().slice(0, 10) ?? "",
+      entregada: row.deliveredAt?.toISOString().slice(0, 10) ?? "",
+    };
+  });
 }
 
 export async function updateOpsNotes(altaId: string, notes: string | null) {
@@ -268,7 +395,7 @@ export async function markDomainRegistered(altaId: string) {
   const now = new Date();
   await getDb()
     .update(altas)
-    .set({ domainRegisteredAt: now, opsStatus: "domain_registered" })
+    .set({ domainRegisteredAt: now })
     .where(eq(altas.id, altaId));
 }
 
@@ -276,7 +403,7 @@ export async function markDelivered(altaId: string) {
   const now = new Date();
   await getDb()
     .update(altas)
-    .set({ deliveredAt: now, opsStatus: "delivered" })
+    .set({ deliveredAt: now })
     .where(eq(altas.id, altaId));
 }
 

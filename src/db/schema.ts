@@ -46,7 +46,7 @@ export const altas = pgTable("altas", {
   checkoutStartedAt: timestamp("checkout_started_at", { withTimezone: true }),
   /** Email capturado en Stripe Checkout al pagar. */
   customerEmail: text("customer_email"),
-  /** Solo valores manuales; null = estado derivado en lectura. */
+  /** @deprecated v3: el board deriva de timestamps; no escribir en mutaciones nuevas. */
   opsStatus: text("ops_status"),
   domainRegisteredAt: timestamp("domain_registered_at", { withTimezone: true }),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),

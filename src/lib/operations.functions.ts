@@ -11,7 +11,6 @@ import {
 } from "./operations.server";
 
 const OpsInput = z.object({
-  rangeDays: z.union([z.literal(7), z.literal(30), z.literal(90)]).default(30),
   appEnv: z.enum(["production", "all"]).default("production"),
 });
 
@@ -19,7 +18,7 @@ export const fetchOperationsBoard = createServerFn({ method: "GET" })
   .validator((input: unknown) => OpsInput.parse(input ?? {}))
   .handler(async ({ data }) => {
     const neonEnvStatus = await getNeonEnvFilterStatus();
-    return getOperationsBoard(data.rangeDays, data.appEnv, neonEnvStatus.columnReady);
+    return getOperationsBoard(data.appEnv, neonEnvStatus.columnReady);
   });
 
 export const saveOpsNotes = createServerFn({ method: "POST" })
@@ -56,11 +55,7 @@ export const exportOperationsCsv = createServerFn({ method: "GET" })
   .validator((input: unknown) => OpsInput.parse(input ?? {}))
   .handler(async ({ data }) => {
     const neonEnvStatus = await getNeonEnvFilterStatus();
-    const rows = await getOperationsCsvRows(
-      data.rangeDays,
-      data.appEnv,
-      neonEnvStatus.columnReady,
-    );
+    const rows = await getOperationsCsvRows(data.appEnv, neonEnvStatus.columnReady);
     const header = [
       "fecha",
       "restaurante",
@@ -96,7 +91,7 @@ export const exportOperationsCsv = createServerFn({ method: "GET" })
       ),
     ];
     const csv = `\uFEFF${lines.join("\n")}`;
-    return { csv, filename: `operaciones-altas-${data.rangeDays}d.csv` };
+    return { csv, filename: "operaciones-altas.csv" };
   });
 
 export type OperationsBoardPayload = Awaited<ReturnType<typeof getOperationsBoard>>;
