@@ -1,7 +1,7 @@
 import type { AltaState } from "@/components/asistente/types";
 import {
   FEE_GESTION_WEB_PROPIA_EUR,
-  TERMS_AND_PRIVACY_URL,
+  TERMS_URL,
   TERMS_VERSION,
   generarSubdominio,
 } from "./alta-config";
@@ -49,7 +49,7 @@ export function buildAltaPayload(alta: AltaState, contact: AltaContactSubmit) {
     contact_name: contact.contact_name,
     whatsapp: contact.whatsapp,
     terms_version: TERMS_VERSION,
-    terms_document_url: TERMS_AND_PRIVACY_URL,
+    terms_document_url: TERMS_URL,
     consent_user_agent: contact.consent_user_agent ?? null,
   };
 }
