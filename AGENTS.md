@@ -42,13 +42,14 @@ El cliente PostHog usa `api_host: /ingest`. En local, Nitro `routeRules` hace pr
 - **Proyecto EU:** [212884](https://eu.posthog.com/project/212884/) — única fuente de verdad para eventos del wizard.
 - **Dashboard:** [792288](https://eu.posthog.com/project/212884/dashboard/792288) (creado por el wizard).
 - **No usar** el proyecto US `491194` (`us.posthog.com`) — quedó del warehouse wizard por error.
-- **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local.
+- **Token:** el mismo `phc_*` del proyecto 212884 en `.env` local (en producción va en el código, `src/lib/posthog-config.ts`).
+- **Consentimiento:** PostHog solo arranca con permiso de cookies (cookie `pu_consent`, compartida con www.powerup.menu). En local, sin elección, mide como siempre. Ver [DEPLOY.md](DEPLOY.md).
 
 ### Panel interno Diagnóstico Alta
 
 - Ruta local: `http://localhost:8080/panel/m4x8nq2k` (slug por defecto).
 - Spec métricas: `posthog-dashboard-diagnostico-alta.md`.
-- Variables y auth en producción: [DEPLOY.md](DEPLOY.md).
+- Desplegado pide contraseña (en local no). Cómo funciona y cómo cambiarla: [DEPLOY.md](DEPLOY.md).
 
 ## Flujo principal
 

@@ -9,7 +9,14 @@ import { OperationsBoard } from "./OperationsBoard";
 
 type PanelTab = "diagnostico" | "operaciones";
 
-export function InternalPanelPage({ tab }: { tab: PanelTab }) {
+export function InternalPanelPage({
+  tab,
+  onLogout,
+}: {
+  tab: PanelTab;
+  /** Solo cuando el panel pide contraseña. */
+  onLogout?: () => void | Promise<void>;
+}) {
   const [appEnv, setAppEnv] = useState<DashboardAppEnvFilter>(() =>
     defaultAppEnvForPanel(import.meta.env.DEV),
   );
@@ -61,6 +68,15 @@ export function InternalPanelPage({ tab }: { tab: PanelTab }) {
               <option value="all">Todos</option>
             </select>
           </label>
+          {onLogout ? (
+            <button
+              type="button"
+              onClick={() => void onLogout()}
+              className="text-sm text-panel-muted underline-offset-4 hover:text-panel-fg hover:underline"
+            >
+              Salir
+            </button>
+          ) : null}
         </nav>
       </div>
 
