@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 type Props = {
   role: "bot" | "user";
   children: ReactNode;
+  /** Datos de contacto: `ph-no-capture` los deja fuera de las grabaciones y del autocapture. */
+  sensitive?: boolean;
 };
 
 function BotAvatar() {
@@ -22,11 +25,16 @@ function BotAvatar() {
 
 export { BotAvatar };
 
-export function ChatBubble({ role, children }: Props) {
+export function ChatBubble({ role, children, sensitive = false }: Props) {
   if (role === "user") {
     return (
       <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="max-w-[85%] min-w-0 break-words rounded-2xl rounded-br-md bg-brand-gradient px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-bubble">
+        <div
+          className={cn(
+            "max-w-[85%] min-w-0 break-words rounded-2xl rounded-br-md bg-brand-gradient px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-bubble",
+            sensitive && "ph-no-capture",
+          )}
+        >
           {children}
         </div>
       </div>

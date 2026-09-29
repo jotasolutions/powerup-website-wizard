@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePostHog } from "posthog-js/react";
 import { Check } from "lucide-react";
+import { CookieSettingsLink } from "@/components/consent/CookieSettingsLink";
 import { Button } from "@/components/ui/button";
 import {
   PLAN_PRO_ANUAL_PRECIO_REFERENCIA_EUR,
@@ -133,7 +134,8 @@ function Confirmacion() {
       </p>
 
       {summary?.customer_email ? (
-        <div className="mt-6 w-full rounded-2xl border bg-card p-4 text-left shadow-card">
+        // ph-no-capture: el email y el enlace con los datos del alta no van a PostHog.
+        <div className="ph-no-capture mt-6 w-full rounded-2xl border bg-card p-4 text-left shadow-card">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Confirmación por email
           </div>
@@ -198,7 +200,12 @@ function Confirmacion() {
 
       {whatsappGeneralUrl ? (
         <Button asChild variant="outline" className="mt-6 rounded-full px-5">
-          <a href={whatsappGeneralUrl} target="_blank" rel="noopener noreferrer">
+          <a
+            href={whatsappGeneralUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ph-no-capture"
+          >
             Enviar fotos o detalles por WhatsApp
           </a>
         </Button>
@@ -207,6 +214,8 @@ function Confirmacion() {
       <Button asChild className="mt-4 rounded-full px-5">
         <Link to="/">Volver al inicio</Link>
       </Button>
+
+      <CookieSettingsLink className="mt-6 text-xs text-muted-foreground" />
     </main>
   );
 }

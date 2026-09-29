@@ -1,18 +1,26 @@
 import { PostHog } from "posthog-node";
 import { envConfigHint } from "./env.server";
+import { POSTHOG_EU_INGEST_HOST, resolveServerPostHogToken } from "./posthog-config";
 
 let posthogClient: PostHog | null = null;
 let warnedMissingConfig = false;
 
+/** Variable si existe; si no, la clave pública del código solo en producción (VERCEL_ENV). */
 export function getPostHogToken(): string | undefined {
-  return (
+  return resolveServerPostHogToken(
     process.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ||
-    import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN
+      import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN,
+    process.env.VERCEL_ENV,
   );
 }
 
-export function getPostHogHost(): string | undefined {
-  return process.env.VITE_PUBLIC_POSTHOG_HOST || import.meta.env.VITE_PUBLIC_POSTHOG_HOST;
+/** Sin host, posthog-node usaría el de EE. UU. y el proyecto UE 212884 no recibiría nada. */
+export function getPostHogHost(): string {
+  return (
+    process.env.VITE_PUBLIC_POSTHOG_HOST ||
+    import.meta.env.VITE_PUBLIC_POSTHOG_HOST ||
+    POSTHOG_EU_INGEST_HOST
+  );
 }
 
 type AppEnv = "production" | "preview" | "development";

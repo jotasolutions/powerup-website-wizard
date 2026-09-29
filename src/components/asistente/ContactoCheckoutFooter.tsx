@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CookieSettingsLink } from "@/components/consent/CookieSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -167,7 +168,9 @@ export function ContactoCheckoutFooter({
               )}
               {submitting ? "Guardando tu contacto…" : submitCta}
             </Button>
-            <p className="text-center text-[10px] text-muted-foreground">{ALTA_CONTACT_STRIPE_NOTE}</p>
+            <p className="text-center text-[10px] text-muted-foreground">
+              {ALTA_CONTACT_STRIPE_NOTE} <CookieSettingsLink />
+            </p>
           </form>
         </div>
       </div>

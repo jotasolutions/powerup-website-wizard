@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
 import { usePostHog } from "posthog-js/react";
+import { useConsent } from "@/components/consent/ConsentProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, ArrowLeft, Check, MessageCircle } from "lucide-react";
@@ -107,25 +108,15 @@ const WIZARD_STARTED_SESSION_KEY = "ph_wizard_started";
 
 type PostHogClient = ReturnType<typeof usePostHog>;
 
-function identifyAltaLead(
-  posthog: PostHogClient,
-  altaId: string,
-  props: { whatsapp?: string; contact_name?: string } | undefined,
-  personPropertiesSetForAltaId: { current: string | null },
-) {
+/** Une la sesión anónima con el alta. Nombre y WhatsApp no se mandan a PostHog: viven en Neon. */
+function identifyAltaLead(posthog: PostHogClient, altaId: string) {
   posthog.identify(altaId);
-  if (!props?.whatsapp && !props?.contact_name) return;
-  if (personPropertiesSetForAltaId.current === altaId) return;
-  personPropertiesSetForAltaId.current = altaId;
-  posthog.setPersonProperties({
-    ...(props.whatsapp && { whatsapp: props.whatsapp }),
-    ...(props.contact_name && { contact_name: props.contact_name }),
-  });
 }
 
 export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel?: boolean }) {
   const navigate = useNavigate();
   const posthog = usePostHog();
+  const { analyticsActive } = useConsent();
   const queryClient = useQueryClient();
   const [alta, setAlta] = useState<AltaState>(initialAlta);
   const [step, setStep] = useState<StepId>("restaurante");
@@ -149,7 +140,8 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const bottomRef = useRef<HTMLDivElement>(null);
   const promptedStepsRef = useRef<Set<StepId>>(new Set());
   const previousStepRef = useRef<StepId | null>(null);
-  const personPropertiesSetForAltaIdRef = useRef<string | null>(null);
+  // URL de llegada (UTMs), por si el permiso de cookies llega después de cargar.
+  const landingSearchRef = useRef(typeof window === "undefined" ? "" : window.location.search);
   const enrichmentErrorToastedRef = useRef(false);
   const lastCapturedSearchErrorRef = useRef<string | null>(null);
   const searchCaptureRef = useRef(initialSearchCaptureState);
@@ -219,7 +211,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       checkout_scenario: getCheckoutScenario(alta),
     });
 
-    pushUser(`${contact_name} · ${whatsapp}`);
+    pushUser(`${contact_name} · ${whatsapp}`, { sensitive: true });
     const altaActualizada = { ...alta, contact_name, whatsapp };
     setAlta(altaActualizada);
     setCheckoutPhase("lead");
@@ -240,12 +232,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
         setPendingAltaId(altaId);
       }
 
-      identifyAltaLead(
-        posthog,
-        altaId,
-        { whatsapp, contact_name },
-        personPropertiesSetForAltaIdRef,
-      );
+      identifyAltaLead(posthog, altaId);
 
       saveAltaDraft({
         alta: altaActualizada,
@@ -329,15 +316,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       setAlta(draft.alta);
       if (draft.alta_id) {
         setPendingAltaId(draft.alta_id);
-        identifyAltaLead(
-          posthog,
-          draft.alta_id,
-          {
-            whatsapp: draft.alta.whatsapp,
-            contact_name: draft.alta.contact_name,
-          },
-          personPropertiesSetForAltaIdRef,
-        );
+        identifyAltaLead(posthog, draft.alta_id);
       }
       promptedStepsRef.current.add("resumen");
       promptedStepsRef.current.add("contacto");
@@ -360,12 +339,14 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recoverFromCancel]);
 
+  // Solo con PostHog activo (permiso de cookies): si el permiso llega más tarde desde el aviso,
+  // el evento se envía entonces.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!analyticsActive) return;
     if (sessionStorage.getItem(WIZARD_STARTED_SESSION_KEY)) return;
     sessionStorage.setItem(WIZARD_STARTED_SESSION_KEY, "1");
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(landingSearchRef.current);
     posthog.capture("wizard_started", {
       utm_source: params.get("utm_source"),
       utm_medium: params.get("utm_medium"),
@@ -373,7 +354,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       utm_content: params.get("utm_content"),
       utm_term: params.get("utm_term"),
     });
-  }, [posthog]);
+  }, [analyticsActive, posthog]);
 
   // Sincronizar enrichPlace → AltaState (snapshot para pasos y draft; no gate del enabled).
   useEffect(() => {
@@ -538,8 +519,12 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     go("encontrado");
   }
 
-  function pushUser(text: string) {
-    setMessages((m) => [...m, { id: uid(), role: "user", kind: "text", text }]);
+  /** `sensitive`: burbuja con datos de contacto; las grabaciones de PostHog no la guardan. */
+  function pushUser(text: string, options?: { sensitive?: boolean }) {
+    setMessages((m) => [
+      ...m,
+      { id: uid(), role: "user", kind: "text", text, sensitive: options?.sensitive },
+    ]);
   }
 
   function go(next: StepId) {
@@ -1154,7 +1139,11 @@ function StepRestaurante({
 
 function ChatMessage({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
-    return <ChatBubble role="user">{message.text}</ChatBubble>;
+    return (
+      <ChatBubble role="user" sensitive={message.sensitive}>
+        {message.text}
+      </ChatBubble>
+    );
   }
 
   switch (message.kind) {

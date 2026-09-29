@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { POSTHOG_PROJECT_TOKEN } from "./posthog-config";
 import {
   captureServerEvent,
   getPostHogClient,
+  getPostHogHost,
   getServerAppEnv,
   getPostHogToken,
   resetPostHogClientForTests,
@@ -97,5 +99,21 @@ describe("getPostHogClient", () => {
         }),
       }),
     );
+  });
+
+  it("en producción sin variable usa la clave pública del código y el host UE", () => {
+    originalImportToken = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN;
+    originalImportHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST;
+    import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN = "";
+    import.meta.env.VITE_PUBLIC_POSTHOG_HOST = "";
+    delete process.env[ENV_TOKEN];
+    delete process.env[ENV_HOST];
+    process.env[ENV_VERCEL] = "production";
+
+    expect(getPostHogToken()).toBe(POSTHOG_PROJECT_TOKEN);
+    expect(getPostHogHost()).toBe("https://eu.i.posthog.com");
+
+    process.env[ENV_VERCEL] = "preview";
+    expect(getPostHogToken()).toBeUndefined();
   });
 });
