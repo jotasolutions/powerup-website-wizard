@@ -101,7 +101,11 @@ export const ALTA_CONTACT_REASSURANCE_CHIPS = ["Solo WhatsApp", "Sin spam"] as c
 
 export const ALTA_TERMS_CHECKBOX_PREFIX = "He leído y acepto las ";
 
-export const ALTA_TERMS_CHECKBOX_LINK = "condiciones y la política de privacidad";
+export const ALTA_TERMS_CHECKBOX_LINK = "condiciones";
+
+export const ALTA_TERMS_CHECKBOX_JOIN = " y la ";
+
+export const ALTA_PRIVACY_CHECKBOX_LINK = "política de privacidad";
 
 export const ALTA_CONTACT_SAVE_HINT = "Lo guardamos por si quieres retomarlo más tarde.";
 

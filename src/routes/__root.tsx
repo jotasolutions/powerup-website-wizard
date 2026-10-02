@@ -8,12 +8,23 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
+import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { ConsentBanner } from "@/components/consent/ConsentBanner";
+import { ConsentProvider } from "@/components/consent/ConsentProvider";
+import { ConsentSettingsDialog } from "@/components/consent/ConsentSettingsDialog";
 
 import { ALTA_ROOT_DESCRIPTION } from "@/lib/alta-copy";
+import { bootAnalytics } from "@/lib/posthog-client";
 import appCss from "../styles.css?url";
+
+// PostHog solo arranca con permiso de cookies (cookie pu_consent, compartida con la web).
+// Se decide aquí, al cargar el módulo en el navegador y antes de que React pinte.
+if (typeof window !== "undefined") {
+  bootAnalytics();
+}
 
 function NotFoundComponent() {
   return (
@@ -114,14 +125,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
-const posthogApiKey = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN ?? "";
-const posthogUiHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || "https://eu.posthog.com";
-const posthogAppEnv = (() => {
-  const env = import.meta.env.VITE_VERCEL_ENV;
-  if (env === "production" || env === "preview" || env === "development") return env;
-  return "development";
-})();
-
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="es" translate="no" className="notranslate">
@@ -129,23 +132,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body translate="no" className="notranslate">
-        <PostHogProvider
-          apiKey={posthogApiKey}
-          options={{
-            api_host: "/ingest",
-            ui_host: posthogUiHost,
-            defaults: "2025-05-24",
-            capture_exceptions: true,
-            debug: import.meta.env.DEV,
-            loaded: (posthog) => {
-              posthog.register({
-                app_env: posthogAppEnv,
-              });
-            },
-          }}
-        >
-          {children}
-        </PostHogProvider>
+        <PostHogProvider client={posthog}>{children}</PostHogProvider>
         <Scripts />
       </body>
     </html>
@@ -157,8 +144,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ConsentProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+        <ConsentBanner />
+        <ConsentSettingsDialog />
+      </ConsentProvider>
       <Toaster richColors position="top-center" />
     </QueryClientProvider>
   );

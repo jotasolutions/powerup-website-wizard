@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  PRIVACY_POLICY_URL,
+  TERMS_URL,
   generarSubdominio,
   restaurantNameToSlug,
   suggestPrimaryCustomDomain,
@@ -30,5 +32,12 @@ describe("suggestPrimaryCustomDomain", () => {
     const name = "Bar La Plaza";
     expect(suggestPrimaryCustomDomain(name)).toBe(`${restaurantNameToSlug(name)}.es`);
     expect(generarSubdominio(name)).toBe(`${restaurantNameToSlug(name)}.powerup.menu`);
+  });
+});
+
+describe("enlaces legales", () => {
+  it("apuntan a las páginas de la web que existen (powerup.menu/legal daba 404)", () => {
+    expect(TERMS_URL).toBe("https://www.powerup.menu/terms");
+    expect(PRIVACY_POLICY_URL).toBe("https://www.powerup.menu/privacy");
   });
 });

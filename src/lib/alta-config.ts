@@ -17,12 +17,18 @@ export const ENABLE_MANAGEMENT_FEE = false;
 /** Versión del documento legal mostrado en el checkbox de contacto (bump manual al cambiar). */
 export const TERMS_VERSION = "2026-06";
 
-/** Enlace único condiciones + privacidad. Override: VITE_LEGAL_URL en build. */
-export const TERMS_AND_PRIVACY_URL =
+/**
+ * Condiciones: se guardan en cada alta como documento aceptado (terms_document_url).
+ * Override: VITE_LEGAL_URL en build. (El antiguo powerup.menu/legal daba 404.)
+ */
+export const TERMS_URL =
   (typeof import.meta !== "undefined" &&
     import.meta.env?.VITE_LEGAL_URL &&
     String(import.meta.env.VITE_LEGAL_URL)) ||
-  "https://powerup.menu/legal";
+  "https://www.powerup.menu/terms";
+
+/** Política de privacidad (incluye la de cookies) de la web. */
+export { PRIVACY_POLICY_URL } from "./analytics-consent";
 
 export function formatEUR(amount: number): string {
   return new Intl.NumberFormat("es-ES", {

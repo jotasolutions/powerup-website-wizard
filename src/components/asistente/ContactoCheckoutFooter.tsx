@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CookieSettingsLink } from "@/components/consent/CookieSettingsLink";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -9,10 +10,12 @@ import {
   ALTA_CONTACT_REASSURANCE_CHIPS,
   ALTA_CONTACT_SAVE_HINT,
   ALTA_CONTACT_STRIPE_NOTE,
+  ALTA_PRIVACY_CHECKBOX_LINK,
+  ALTA_TERMS_CHECKBOX_JOIN,
   ALTA_TERMS_CHECKBOX_LINK,
   ALTA_TERMS_CHECKBOX_PREFIX,
 } from "@/lib/alta-copy";
-import { TERMS_AND_PRIVACY_URL } from "@/lib/alta-config";
+import { PRIVACY_POLICY_URL, TERMS_URL } from "@/lib/alta-config";
 import { inputStepConfig } from "@/lib/input-step-config";
 import { scrollInputIntoView } from "@/hooks/useKeyboardInset";
 import { KeyboardAwareField } from "./KeyboardAwareField";
@@ -147,13 +150,23 @@ export function ContactoCheckoutFooter({
               >
                 {ALTA_TERMS_CHECKBOX_PREFIX}
                 <a
-                  href={TERMS_AND_PRIVACY_URL}
+                  href={TERMS_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-foreground underline underline-offset-2"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {ALTA_TERMS_CHECKBOX_LINK}
+                </a>
+                {ALTA_TERMS_CHECKBOX_JOIN}
+                <a
+                  href={PRIVACY_POLICY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground underline underline-offset-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {ALTA_PRIVACY_CHECKBOX_LINK}
                 </a>
                 .
               </Label>
@@ -167,7 +180,9 @@ export function ContactoCheckoutFooter({
               )}
               {submitting ? "Guardando tu contacto…" : submitCta}
             </Button>
-            <p className="text-center text-[10px] text-muted-foreground">{ALTA_CONTACT_STRIPE_NOTE}</p>
+            <p className="text-center text-[10px] text-muted-foreground">
+              {ALTA_CONTACT_STRIPE_NOTE} <CookieSettingsLink />
+            </p>
           </form>
         </div>
       </div>

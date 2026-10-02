@@ -61,5 +61,5 @@ export const initialAlta: AltaState = {
 
 export type ChatMessage =
   | { id: string; role: "bot"; kind: "text"; text: string }
-  | { id: string; role: "user"; kind: "text"; text: string }
+  | { id: string; role: "user"; kind: "text"; text: string; sensitive?: boolean }
   | { id: string; role: "bot"; kind: "resumen-pedido"; alta: AltaState };

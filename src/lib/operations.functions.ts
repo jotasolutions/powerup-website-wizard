@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getNeonEnvFilterStatus } from "./neon-env-filter.server";
+import { requirePanelSession } from "./panel-auth.functions";
 import {
   getOperationsBoard,
   getOperationsCsvRows,
@@ -15,6 +16,7 @@ const OpsInput = z.object({
 });
 
 export const fetchOperationsBoard = createServerFn({ method: "GET" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => OpsInput.parse(input ?? {}))
   .handler(async ({ data }) => {
     const neonEnvStatus = await getNeonEnvFilterStatus();
@@ -22,6 +24,7 @@ export const fetchOperationsBoard = createServerFn({ method: "GET" })
   });
 
 export const saveOpsNotes = createServerFn({ method: "POST" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) =>
     z.object({ altaId: z.string().uuid(), notes: z.string().nullable() }).parse(input),
   )
@@ -31,6 +34,7 @@ export const saveOpsNotes = createServerFn({ method: "POST" })
   });
 
 export const setDomainRegistered = createServerFn({ method: "POST" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => z.object({ altaId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     await markDomainRegistered(data.altaId);
@@ -38,6 +42,7 @@ export const setDomainRegistered = createServerFn({ method: "POST" })
   });
 
 export const setDelivered = createServerFn({ method: "POST" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => z.object({ altaId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     await markDelivered(data.altaId);
@@ -45,6 +50,7 @@ export const setDelivered = createServerFn({ method: "POST" })
   });
 
 export const markWaOpenedFn = createServerFn({ method: "POST" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => z.object({ altaId: z.string().uuid() }).parse(input))
   .handler(async ({ data }) => {
     await markWaOpened(data.altaId);
@@ -52,6 +58,7 @@ export const markWaOpenedFn = createServerFn({ method: "POST" })
   });
 
 export const exportOperationsCsv = createServerFn({ method: "GET" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => OpsInput.parse(input ?? {}))
   .handler(async ({ data }) => {
     const neonEnvStatus = await getNeonEnvFilterStatus();

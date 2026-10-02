@@ -14,7 +14,7 @@ La configuración del entorno desplegado (env vars, integraciones, redeploy) es 
 |------|-------------------|-------------|-------|
 | **Neon** | `DATABASE_URL` o `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, `POSTGRES_PRISMA_URL`, `NEON_DATABASE_URL`, `NEON_POSTGRES_URL` (cualquiera; ver `getDatabaseUrl()` en `src/lib/env.server.ts`) | Sí | Sin esto fallan `saveAlta`, webhook fulfillment y tiles Neon del panel |
 | **Google Places** | `GOOGLE_PLACES_API_KEY` (o alias `GOOGLE_API_KEY`, `VITE_GOOGLE_API_KEY`, …) | Sí | Búsqueda de restaurantes en el wizard |
-| **PostHog cliente** | `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN`, `VITE_PUBLIC_POSTHOG_HOST` | Sí | Token en **build** del cliente; mismo token en **runtime** servidor para `posthog-node` / webhook |
+| **PostHog cliente** | `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN`, `VITE_PUBLIC_POSTHOG_HOST` | No | La clave pública del proyecto UE 212884 va en el código (`src/lib/posthog-config.ts`): el navegador la usa solo en `alta-pagina-web.powerup.menu` y el servidor solo con `VERCEL_ENV=production`. El host UE también es el valor por defecto. Si se definen las variables, mandan. PostHog solo arranca con permiso de cookies (ver «Consentimiento de cookies») |
 | **PostHog panel** | `POSTHOG_PERSONAL_API_KEY` | Sí (panel) | HogQL lectura proyecto EU 212884; opcional `POSTHOG_API_HOST`, `POSTHOG_PROJECT_ID` |
 | **Stripe** | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_PRO_ANUAL`, `STRIPE_WEBHOOK_SECRET` | Sí | Checkout + fulfillment autoritativo en `POST /api/stripe/webhook` |
 | **App URL** | `APP_URL` | Sí (prod) | Dominio público HTTPS para success/cancel de Stripe |
@@ -24,6 +24,8 @@ La configuración del entorno desplegado (env vars, integraciones, redeploy) es 
 | **Evolution** | `EVOLUTION_API_URL`, `EVOLUTION_INSTANCE_NAME`, `EVOLUTION_API_KEY` | No | Validación WhatsApp; en local se puede usar móvil `000000000` |
 | **Namecheap** | `NAMECHEAP_API_USER`, `NAMECHEAP_API_KEY`, `NAMECHEAP_CLIENT_IP`, … | No* | O `MOCK_DOMAIN_CHECK=true` para pruebas sin API |
 | **Panel** | `INTERNAL_ANALYTICS_PANEL_SLUG`, `INTERNAL_ANALYTICS_REPLAY_URL`, `ANALYTICS_CHECKOUT_SCENARIO_SINCE` | No | Defaults en código; replay es enlace manual a playlist PostHog |
+| **Panel: contraseña** | `INTERNAL_ANALYTICS_PANEL_PASSWORD_HASH` | No | La huella de la contraseña va en el código (`src/lib/panel-auth.server.ts`); esta variable solo la sustituye. Ver «Panel interno — autenticación» |
+| **Legal** | `VITE_LEGAL_URL` | No | Enlace a las condiciones en la casilla de contacto; por defecto `https://www.powerup.menu/terms` (privacidad: `/privacy`) |
 | **Soporte** | `SUPPORT_WHATSAPP`, `VITE_SUPPORT_WHATSAPP` | Recomendado | Copy del wizard |
 
 **Estado del deploy Vercel actual (esperado):** sin variables runtime configuradas — el wizard y el panel degradan por tile en la URL desplegada. Eso es coherente con la política local-first hasta que se ejecute este checklist.
@@ -42,7 +44,7 @@ Estas comprobaciones **no** forman parte del criterio de validación local. Qued
 6. **Namecheap `CLIENT_IP`** — puede requerir la IP saliente del servidor de producción.
 7. **Reconciliación Neon ↔ PostHog** — tile del panel interno; solo tiene sentido con tráfico real en el mismo entorno.
 8. **`app_env` y filtros del dashboard** — scope `VITE_VERCEL_ENV` solo Production + redeploy; sin eso, métricas de “production” mezclan `development`.
-9. **Auth del panel** — `/panel/{slug}` hoy sin autenticación; riesgo operativo antes de tráfico público.
+9. **Auth del panel** — en cualquier despliegue (`VERCEL_ENV` presente) `/panel/{slug}` pide contraseña; sin conexión a Neon queda cerrado. Comprobar en una ventana privada.
 10. **Backfill `paid_at`** — en la BD de producción; timestamps históricos son aproximación (`created_at`; ver `analytics-neon.server.ts`).
 11. **Session Replay / playlist** — tile 9 del panel depende de `INTERNAL_ANALYTICS_REPLAY_URL` configurada manualmente en PostHog.
 12. **Flujo móvil en red local** — `npm run dev:mobile` cubre pruebas LAN; no equivale a producción con dominio público y certificado.
@@ -88,9 +90,22 @@ En [Project Settings → Authorized URLs](https://eu.posthog.com/project/212884/
 
 ### 4. Panel interno — autenticación
 
-**Prioridad ALTA:** La pestaña Operaciones expone PII (nombres, teléfonos, notas). La auth del panel deja de ser opcional y pasa a ser **bloqueante** antes de cualquier tráfico real.
+La pestaña Operaciones expone PII (nombres, teléfonos, notas), así que el panel pide contraseña en todo despliegue:
 
-Antes de tráfico real, proteger `/panel/{INTERNAL_ANALYTICS_PANEL_SLUG}` (default `m4x8nq2k`) con autenticación real. Hoy la ruta es de prueba sin auth.
+- **Qué protege:** la página y también las funciones de servidor que dan los datos (`analytics-dashboard.functions.ts`, `operations.functions.ts`, middleware `requirePanelSession`) y `POST /api/ops/wa-opened`. Sin sesión responden 401.
+- **Contraseña:** en el código solo va su huella scrypt (`PANEL_PASSWORD_FINGERPRINT` en `src/lib/panel-auth.server.ts`), que no sirve para averiguarla. `INTERNAL_ANALYTICS_PANEL_PASSWORD_HASH`, si existe, la sustituye.
+- **Sesión:** cookie `panel_session` (`HttpOnly`, `Secure`, `SameSite=Strict`) de 12 h, firmada con una clave derivada (HKDF) de la conexión a Neon que ya tiene el servidor. Cambiar la contraseña o esa conexión cierra todas las sesiones. Contraseña incorrecta: 1 s de espera.
+- **Cuándo se cierra:** desplegado sin conexión a Neon o sin huella válida, nadie entra. En local (sin `VERCEL_ENV`) el panel sigue abierto.
+- **Cambiar la contraseña:** `node scripts/panel-password.mjs` crea una nueva, la copia al portapapeles y muestra solo la huella; sustituir `PANEL_PASSWORD_FINGERPRINT` y desplegar.
+
+### Consentimiento de cookies (PostHog)
+
+PostHog solo arranca con permiso de analíticas. La elección es la misma que la del aviso de www.powerup.menu: la cookie `pu_consent` en `powerup.menu` (sí/no por tipo, versión del aviso y fecha; ningún identificador), que escriben y leen la web (`components/cookie-consent/utils.ts`) y el wizard (`src/lib/analytics-consent.ts`).
+
+- Quien ya eligió no ve el aviso; quien no eligió lo ve en el wizard, con el mismo texto que la web. Enlace «Cookies» para cambiar la elección (último paso y confirmación).
+- El panel nunca carga PostHog. En desarrollo local, sin elección, PostHog funciona como siempre.
+- Los eventos de servidor (`alta_lead_saved`, `checkout_session_created`, `alta_fulfilled`) no usan cookies y se envían siempre.
+- Si la web sube su `consentVersion`, subir `CONSENT_VERSION` en `src/lib/analytics-consent.ts`.
 
 ### 5. `VITE_VERCEL_ENV` y redeploy
 

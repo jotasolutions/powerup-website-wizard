@@ -55,6 +55,7 @@ import {
   isEnvComparisonComparable,
   type NeonPanelQueryContext,
 } from "./neon-env-filter.server";
+import { requirePanelSession } from "./panel-auth.functions";
 
 export type TileResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -326,6 +327,7 @@ function buildSectionLights(params: {
 }
 
 export const getAnalyticsDashboard = createServerFn({ method: "GET" })
+  .middleware([requirePanelSession])
   .validator((input: unknown) => DashboardInput.parse(input ?? {}))
   .handler(async ({ data }): Promise<AnalyticsDashboardPayload> => {
     const { rangeDays, appEnv } = data;

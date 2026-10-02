@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialAlta } from "@/components/asistente/types";
-import { TERMS_AND_PRIVACY_URL, TERMS_VERSION } from "./alta-config";
+import { TERMS_URL, TERMS_VERSION } from "./alta-config";
 import { buildAltaPayload } from "./alta-payload";
 
 describe("buildAltaPayload", () => {
@@ -19,7 +19,7 @@ describe("buildAltaPayload", () => {
     );
 
     expect(payload.terms_version).toBe(TERMS_VERSION);
-    expect(payload.terms_document_url).toBe(TERMS_AND_PRIVACY_URL);
+    expect(payload.terms_document_url).toBe(TERMS_URL);
     expect(payload.consent_user_agent).toBe("Mozilla/5.0 Test");
     expect(payload.contact_name).toBe("María");
     expect(payload.whatsapp).toBe("+34 600 000 000");
