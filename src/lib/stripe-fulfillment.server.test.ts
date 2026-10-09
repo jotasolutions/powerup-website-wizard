@@ -93,6 +93,24 @@ describe("buildCheckoutSubscriptionData", () => {
     expect(data.trial_period_days).toBe(30);
   });
 
+  it("lleva la campaña de llegada en los metadatos de la suscripción", () => {
+    const data = buildCheckoutSubscriptionData({
+      ...base,
+      powerupCustomer: "no",
+      campaign: { utm_campaign: "tanda1-2026-10", utm_content: "h3-a" },
+    });
+    expect(data.metadata).toMatchObject({
+      alta_id: "alta-123",
+      utm_campaign: "tanda1-2026-10",
+      utm_content: "h3-a",
+    });
+  });
+
+  it("sin campaña no añade claves utm", () => {
+    const data = buildCheckoutSubscriptionData({ ...base, powerupCustomer: "no" });
+    expect(Object.keys(data.metadata ?? {}).some((k) => k.startsWith("utm_"))).toBe(false);
+  });
+
   it("upgrade carta PowerUp omite trial", () => {
     const data = buildCheckoutSubscriptionData({
       ...base,

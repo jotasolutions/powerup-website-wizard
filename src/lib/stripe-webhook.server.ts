@@ -9,6 +9,7 @@ import {
   normalizeStripeId,
 } from "./stripe.server";
 import { captureServerEvent } from "./posthog-server";
+import { campaignFromStripeMetadata, campaignMetadata } from "./campaign-attribution";
 
 export type WebhookHandlerResult = {
   status: number;
@@ -70,6 +71,7 @@ async function handleCheckoutSessionCompleted(
     dispatchAltaPaidNotification(altaId, "stripe_webhook");
     dispatchCheckoutConfirmationEmail(altaId, amountPaidEur);
     const properties: Record<string, unknown> = {
+      ...campaignMetadata(campaignFromStripeMetadata(session.metadata)),
       alta_id: altaId,
       stripe_session_id: session.id,
       stripe_customer_id: stripeCustomerId,

@@ -23,6 +23,7 @@ import { formatBotText } from "./formatBotText";
 import { type AltaState, type ChatMessage, type GmbResult, initialAlta } from "./types";
 import { generarSubdominio, formatEUR } from "@/lib/alta-config";
 import { buildAltaPayload } from "@/lib/alta-payload";
+import { rememberCampaign, type CampaignParams } from "@/lib/campaign-attribution";
 import {
   buildFallbackPlaceProfileFromApiError,
   buildFallbackPlaceProfileManual,
@@ -142,6 +143,8 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
   const previousStepRef = useRef<StepId | null>(null);
   // URL de llegada (UTMs), por si el permiso de cookies llega después de cargar.
   const landingSearchRef = useRef(typeof window === "undefined" ? "" : window.location.search);
+  // Campaña de llegada para Stripe y los eventos de servidor (no depende del permiso de cookies).
+  const campaignRef = useRef<CampaignParams>({});
   const enrichmentErrorToastedRef = useRef(false);
   const lastCapturedSearchErrorRef = useRef<string | null>(null);
   const searchCaptureRef = useRef(initialSearchCaptureState);
@@ -227,7 +230,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       });
 
       if (!altaId) {
-        const saved = await saveAltaFn({ data: altaPayload });
+        const saved = await saveAltaFn({ data: { ...altaPayload, campana: campaignRef.current } });
         altaId = saved.alta_id;
         setPendingAltaId(altaId);
       }
@@ -243,7 +246,7 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
       setCheckoutPhase("checkout");
 
       const result = await createCheckoutFn({
-        data: { alta_id: altaId, origin: window.location.origin },
+        data: { alta_id: altaId, origin: window.location.origin, campana: campaignRef.current },
       });
 
       if (result.checkout_url) {
@@ -338,6 +341,11 @@ export function AsistenteAlta({ recoverFromCancel = false }: { recoverFromCancel
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recoverFromCancel]);
+
+  // Campaña de llegada: se recuerda en la pestaña para que sobreviva a la vuelta de Stripe sin pagar.
+  useEffect(() => {
+    campaignRef.current = rememberCampaign(landingSearchRef.current);
+  }, []);
 
   // Solo con PostHog activo (permiso de cookies): si el permiso llega más tarde desde el aviso,
   // el evento se envía entonces.
