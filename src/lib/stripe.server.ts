@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { PLAN_PRO_ANUAL_DIAS_PRUEBA } from "./alta-config";
+import { campaignMetadata, type CampaignParams } from "./campaign-attribution";
 import {
   getStripeAnnualPriceId,
   getStripeSecretKey,
@@ -18,9 +19,11 @@ export function buildCheckoutSubscriptionData(params: {
   altaId: string;
   restaurantName: string;
   powerupCustomer: PowerUpCustomerStripeFlag;
+  campaign?: CampaignParams | null;
 }): Stripe.Checkout.SessionCreateParams.SubscriptionData {
   const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
     metadata: {
+      ...campaignMetadata(params.campaign),
       alta_id: params.altaId,
       restaurant_name: params.restaurantName,
       powerup_customer: params.powerupCustomer,
@@ -111,6 +114,8 @@ export async function createAltaCheckoutSession(params: {
   powerupCustomer: PowerUpCustomerStripeFlag;
   onetimeFeeConcept: "gestion" | "dominio" | null;
   onetimeFeeAmount: number | null;
+  /** Campaña de llegada (UTM). Va en los metadatos de la sesión y de la suscripción. */
+  campaign?: CampaignParams | null;
 }): Promise<Stripe.Checkout.Session> {
   const stripe = getStripe();
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
@@ -143,8 +148,10 @@ export async function createAltaCheckoutSession(params: {
       altaId: params.altaId,
       restaurantName: params.restaurantName,
       powerupCustomer: params.powerupCustomer,
+      campaign: params.campaign,
     }),
     metadata: {
+      ...campaignMetadata(params.campaign),
       alta_id: params.altaId,
       restaurant_name: params.restaurantName,
       powerup_customer: params.powerupCustomer,

@@ -4,6 +4,7 @@ import { FEE_GESTION_WEB_PROPIA_EUR } from "./alta-config";
 import { dispatchAltaLeadNotification, dispatchAltaPaidNotification } from "./alta-slack.server";
 import { dispatchCheckoutConfirmationEmail } from "./alta-email.server";
 import { captureServerEvent } from "./posthog-server";
+import { CampaignSchema, campaignMetadata } from "./campaign-attribution";
 import {
   createAltaCheckoutSession,
   hasStripeCheckout,
@@ -199,6 +200,8 @@ const AltaInput = z
     whatsapp: z.string().min(3),
     /** Origen del navegador (p. ej. http://localhost:8081) para URLs de vuelta de Stripe. */
     origin: z.string().url().optional(),
+    /** Campaña de llegada (UTM). No se guarda en Neon: va a Stripe y a los eventos de servidor. */
+    campana: CampaignSchema.optional(),
   })
   .merge(AltaConsentFields);
 
@@ -257,6 +260,7 @@ export const startCheckout = createServerFn({ method: "POST" })
       powerupCustomer,
       onetimeFeeConcept: data.onetime_fee_concept,
       onetimeFeeAmount: data.onetime_fee_amount,
+      campaign: data.campana,
     });
 
     if (!session.url) {
@@ -279,6 +283,7 @@ export const saveAlta = createServerFn({ method: "POST" })
       distinctId: altaId,
       event: "alta_lead_saved",
       properties: {
+        ...campaignMetadata(data.campana),
         alta_id: altaId,
         restaurant_name: data.restaurant_name,
         has_gmb: data.gmb_place_id != null,
@@ -299,6 +304,7 @@ export const createCheckout = createServerFn({ method: "POST" })
       .object({
         alta_id: z.string().uuid(),
         origin: z.string().url().optional(),
+        campana: CampaignSchema.optional(),
       })
       .parse(input),
   )
@@ -335,6 +341,7 @@ export const createCheckout = createServerFn({ method: "POST" })
       powerupCustomer,
       onetimeFeeConcept: alta.onetimeFeeConcept,
       onetimeFeeAmount,
+      campaign: data.campana,
     });
 
     if (!session.url) {
@@ -347,6 +354,7 @@ export const createCheckout = createServerFn({ method: "POST" })
       distinctId: data.alta_id,
       event: "checkout_session_created",
       properties: {
+        ...campaignMetadata(data.campana),
         alta_id: data.alta_id,
         restaurant_name: alta.restaurantName,
         powerup_customer: powerupCustomer,

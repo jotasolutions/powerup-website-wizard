@@ -17,14 +17,14 @@ vi.mock("./posthog-server", () => ({
   captureServerEvent: vi.fn(),
 }));
 
-function completedEvent(): Stripe.Event {
+function completedEvent(extraMetadata: Record<string, string> = {}): Stripe.Event {
   return {
     type: "checkout.session.completed",
     data: {
       object: {
         id: "cs_test_123",
         status: "complete",
-        metadata: { alta_id: "alta-123" },
+        metadata: { alta_id: "alta-123", ...extraMetadata },
         subscription: "sub_123",
         customer: "cus_123",
       },
@@ -82,6 +82,30 @@ describe("handleStripeWebhookEvent analytics enrichment", () => {
         properties: expect.not.objectContaining({
           checkout_scenario: expect.anything(),
           onetime_fee_amount: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it("alta_fulfilled lleva la campaña de los metadatos de Stripe", async () => {
+    vi.mocked(fulfillAltaFromCheckout).mockResolvedValue({ outcome: "fulfilled" });
+    vi.mocked(getAltaById).mockResolvedValue(null as never);
+
+    await handleStripeWebhookEvent(
+      completedEvent({
+        utm_campaign: "tanda1-2026-10",
+        utm_content: "h3-b",
+        restaurant_name: "Bar",
+      }),
+    );
+
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "alta_fulfilled",
+        properties: expect.objectContaining({
+          alta_id: "alta-123",
+          utm_campaign: "tanda1-2026-10",
+          utm_content: "h3-b",
         }),
       }),
     );
